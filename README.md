@@ -83,6 +83,7 @@ variables always take precedence over `.env`.
 |---|---|---|---|
 | `RETRO_PORT` | both | `5050` | Port you browse to |
 | `RETRO_SECRET_KEY` | both | random per start | Signs the flash-message cookie |
+| `RETRO_MAX_UPLOAD_MB` | both | `64` | Largest cover or save upload |
 | `RETRO_TRUSTED_ORIGINS` | both | — | Extra `host[:port]` allowed to submit forms (reverse proxy only) |
 | `RETRO_HOST` | native | `127.0.0.1` | Interface to listen on (`0.0.0.0` = LAN) |
 | `RETRO_DEBUG` | native | `0` | Werkzeug debugger and auto-reload |
@@ -146,7 +147,7 @@ Only a **title** and **platform** are required to add a game.
   added, or length.
 - **Cover art:** set per game. Choosing an image uploads and sets it
   immediately; "Clear cover" removes it. Images are checked by their
-  content, not their file name (PNG, JPEG, GIF, WebP, up to 16 MB).
+  content, not their file name (PNG, JPEG, GIF, WebP).
 - **Tags:** set per game (genre, "Rom hack", "Co-op", …), case-insensitive.
   You can enter several, comma-separated, on the Add-game form. A tag no
   game uses anymore is deleted automatically.
@@ -167,6 +168,22 @@ Only a **title** and **platform** are required to add a game.
   stores SHA-256, CRC32, and the file size. "Verify" re-hashes the file and
   marks it verified, modified, or missing. Changing a copy's path clears its
   old hash.
+- **Save vault:** keep snapshots of save files you care about ("100% file",
+  "before the final boss", a cartridge save you dumped). Each save belongs
+  to the **copy** it was made with, because save formats differ (an N64
+  cart's EEPROM save isn't a PC source port's save). A save can also be
+  linked to the **completion** it came from. Upload a save from a copy on
+  the game page, or attach one while using **Mark as beaten**. Saves can be
+  downloaded with their original file name, relabelled, annotated, moved to
+  another copy of the same game, or deleted.
+  - Uploads are limited to 64 MB by default (`RETRO_MAX_UPLOAD_MB`). Zip
+    folders such as PC saves or RetroArch save-state sets.
+  - Save files can't be replaced, so a copy or release that still has
+    saves can't be deleted until you move or delete them. Deleting a whole
+    game asks for confirmation and states how many saves will go with it.
+  - The vault holds snapshots you choose to keep. Keeping live saves in
+    sync between devices is a different job, better handled by Syncthing
+    (RetroArch saves) or Ludusavi (PC game saves).
 - **Stats:** games beaten and hours played per year, average rating, and
   your top-rated games.
 
@@ -179,7 +196,8 @@ config.py            RETRO_* settings and a small .env reader
 db.py                Connection, transactions, schema versioning, CLI commands
 queries.py           All the SQL
 hashing.py           Chunked SHA-256 / CRC32 for large files
-schema.sql           Current schema (version 1)
+storage.py           Hash-named, streamed storage for uploaded save files
+schema.sql           Current schema (version 2)
 seed_platforms.py    Default platform list
 gunicorn.conf.py     Server settings (used by Docker)
 Dockerfile           Container image
@@ -187,22 +205,28 @@ docker-compose.yml   Docker Compose setup (ports and volumes come from .env)
 .env.example         Documented settings template
 templates/           Jinja2 templates (server-rendered, no JS framework)
 static/              CSS, plus a little progressive-enhancement JS
-data/                Database + data/assets/covers/ (entirely gitignored, auto-created)
+data/                Database, assets/covers/, assets/saves/ (entirely gitignored, auto-created)
 library/             Default Docker mount point for game files (gitignored)
 tests/               pytest suite
 ```
 
 ## Data, backups, and upgrades
 
-- **Back up `data/`.** It contains the whole database and all cover images.
+- **Back up `data/`.** It contains the database, all cover images, and the
+  save vault (`data/assets/saves/`). Save files can't be replaced.
 - Covers are saved as `data/assets/covers/<hash>.<ext>`, named by a hash of
   the image's contents, so an image shared by several games is stored once.
   Because of that, clearing a cover only removes the game's reference to
   it; the file stays. To delete files nothing uses anymore:
   `flask --app wsgi prune-covers` (add `--dry-run` to preview).
+- Save files are stored the same way, as `data/assets/saves/<hash>.<ext>`,
+  with your original file name kept for downloads. Identical uploads are
+  stored once. A save's file is deleted only when the last save using it is
+  deleted.
 - **Schema versioning:** the database stores its schema version
-  (`PRAGMA user_version`). Future schema changes will come with numbered
-  migrations in `db.py` that upgrade your database automatically.
+  (`PRAGMA user_version`). Schema changes come with numbered migrations in
+  `db.py`. Each one runs in a transaction and upgrades your database
+  automatically at startup. Version 2 added the save vault.
 - **Coming from the earlier prototype:** this version doesn't migrate
   databases created before schema versioning. The app refuses to start and
   explains why, rather than corrupting the file. Move or delete
@@ -213,7 +237,8 @@ tests/               pytest suite
 
 This is a single-user app with no login. Anyone who can reach its port can
 change or delete anything in it, and can download any file the app can read
-by adding a copy that points at it. In Docker, that means only what you
+by adding a copy that points at it. They can also download your save
+files. In Docker, that means only what you
 mount: `/library` (read-only) and `/data`. So:
 
 - Keep it on your home network. Don't forward the port to the internet.
@@ -237,6 +262,9 @@ your real `data/`. The tests cover:
 - owned vs. playable, and copy links, notes, and editing;
 - platform filters that include "via";
 - covers stored per game and deduplicated by hash;
+- save vault uploads, downloads, deduplication, file clean-up, the
+  delete guards, and saves attached at Mark as beaten;
+- the version 1 → 2 database migration;
 - backlog ordering, including that reordering a filtered view is refused;
 - completions recording which copy was played;
 - the remake and regional-release rules;

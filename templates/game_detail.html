@@ -52,6 +52,20 @@
   {% endif %}
 {% endmacro %}
 
+{% macro completion_select(prefix, selected=None) %}
+  {% if completions %}
+  <div class="field-group">
+    <label for="{{ prefix }}-comp">From completion <span class="hint">— optional</span></label>
+    <select id="{{ prefix }}-comp" name="completion_id">
+      <option value="">— none —</option>
+      {% for comp in completions %}
+        <option value="{{ comp['id'] }}" {{ 'selected' if selected == comp['id'] }}>Beaten {{ comp['completed_at'] }}{% if comp['via_label'] %} · via {{ comp['via_label'] }}{% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+{% endmacro %}
+
 {% block content %}
 
 <datalist id="platform-list">{% for p in platforms %}<option value="{{ p['name'] }}">{% endfor %}</datalist>
@@ -119,14 +133,14 @@
         </form>
       {% endif %}
       <form method="post" action="{{ url_for('game_delete', game_id=game['id']) }}"
-            class="inline-form confirm-delete" data-confirm="Delete &quot;{{ game['title'] }}&quot; and all its releases, copies, and history? This cannot be undone.">
+            class="inline-form confirm-delete" data-confirm="Delete &quot;{{ game['title'] }}&quot; and all its releases, copies, and history{% if save_count %}, including {{ save_count }} saved game file{{ '' if save_count == 1 else 's' }}{% endif %}? This cannot be undone.">
         <button type="submit" class="danger">Delete game</button>
       </form>
     </div>
 
     <details class="action-panel">
       <summary class="btn secondary">Mark as beaten</summary>
-      <form method="post" action="{{ url_for('complete_add', game_id=game['id']) }}" class="card panel-form">
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('complete_add', game_id=game['id']) }}" class="card panel-form">
         <div class="field-row">
           <div class="field-group">
             <label for="completed_at">Date completed</label>
@@ -146,6 +160,21 @@
           <label for="c-notes">Notes</label>
           <textarea id="c-notes" name="notes"></textarea>
         </div>
+        {% if game_copies %}
+        <fieldset class="save-attach">
+          <legend>Keep the save from this run <span class="hint">— optional; stored with the copy picked under “Played via”</span></legend>
+          <div class="field-row">
+            <div class="field-group">
+              <label for="c-save">Save file</label>
+              <input type="file" id="c-save" name="save">
+            </div>
+            <div class="field-group">
+              <label for="c-save-label">Label</label>
+              <input type="text" id="c-save-label" name="save_label" placeholder="e.g. Clear save, 100%">
+            </div>
+          </div>
+        </fieldset>
+        {% endif %}
         <button type="submit">Save</button>
       </form>
     </details>
@@ -272,6 +301,80 @@
 
             {% if c['notes'] %}<div class="copy-notes prewrap">{{ c['notes'] }}</div>{% endif %}
 
+            {% set copy_saves = saves_by_copy.get(c['id'], []) %}
+            <div class="copy-saves">
+              {% if copy_saves %}
+                <div class="saves-head">Saves <span class="muted">({{ copy_saves|length }})</span></div>
+                <ul class="save-list">
+                  {% for sv in copy_saves %}
+                    <li class="save" id="save-{{ sv['id'] }}">
+                      <div class="save-main">
+                        {% if sv['missing'] %}
+                          <span class="status-tag missing">file missing</span>
+                        {% else %}
+                          <a class="btn small secondary" href="{{ url_for('save_download', save_id=sv['id']) }}">Download</a>
+                        {% endif %}
+                        <span class="save-label">{{ sv['label'] }}</span>
+                        <span class="muted save-meta">{{ sv['filename'] }} · {{ sv['size']|filesize }} · added {{ sv['uploaded_at'][:10] }}{% if sv['completion_date'] %} · from the {{ sv['completion_date'] }} completion{% endif %}</span>
+                      </div>
+                      {% if sv['notes'] %}<div class="save-notes prewrap">{{ sv['notes'] }}</div>{% endif %}
+                      <details class="quiet-panel">
+                        <summary>Edit save</summary>
+                        <form method="post" action="{{ url_for('save_edit', save_id=sv['id']) }}" class="panel-form">
+                          <div class="field-row">
+                            <div class="field-group">
+                              <label for="sv{{ sv['id'] }}-label">Label</label>
+                              <input type="text" id="sv{{ sv['id'] }}-label" name="label" value="{{ sv['label'] }}">
+                            </div>
+                            {% if game_copies|length > 1 %}
+                            <div class="field-group">
+                              <label for="sv{{ sv['id'] }}-copy">Belongs to copy</label>
+                              <select id="sv{{ sv['id'] }}-copy" name="copy_id">
+                                {% for gc in game_copies %}
+                                  <option value="{{ gc['id'] }}" {{ 'selected' if gc['id'] == sv['copy_id'] }}>{{ gc|copy_label }}</option>
+                                {% endfor %}
+                              </select>
+                            </div>
+                            {% endif %}
+                          </div>
+                          {{ completion_select('sv' ~ sv['id'], sv['completion_id']) }}
+                          <div class="field-group">
+                            <label for="sv{{ sv['id'] }}-notes">Notes</label>
+                            <textarea id="sv{{ sv['id'] }}-notes" name="notes">{{ sv['notes'] or '' }}</textarea>
+                          </div>
+                          <button type="submit" class="small">Save changes</button>
+                        </form>
+                        <form method="post" action="{{ url_for('save_delete', save_id=sv['id']) }}" class="inline-form confirm-delete" data-confirm="Delete this save and its file? This cannot be undone.">
+                          <button type="submit" class="small danger">Delete save</button>
+                        </form>
+                      </details>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              <details class="quiet-panel save-upload">
+                <summary>Upload a save</summary>
+                <form method="post" enctype="multipart/form-data" action="{{ url_for('save_new', copy_id=c['id']) }}" class="panel-form">
+                  <div class="field-row">
+                    <div class="field-group">
+                      <label for="ns{{ c['id'] }}-file">Save file <span class="hint">— up to {{ max_upload_mb }} MB; zip folders</span></label>
+                      <input type="file" id="ns{{ c['id'] }}-file" name="save" required>
+                    </div>
+                    <div class="field-group">
+                      <label for="ns{{ c['id'] }}-label">Label</label>
+                      <input type="text" id="ns{{ c['id'] }}-label" name="label" placeholder="e.g. Before final boss, 100% file">
+                    </div>
+                  </div>
+                  {{ completion_select('ns' ~ c['id']) }}
+                  <div class="field-group">
+                    <label for="ns{{ c['id'] }}-notes">Notes</label>
+                    <textarea id="ns{{ c['id'] }}-notes" name="notes" placeholder="Emulator/core, slot, what's in it…"></textarea>
+                  </div>
+                  <button type="submit" class="small">Upload save</button>
+                </form>
+              </details>
+            </div>
+
             <details class="quiet-panel copy-edit">
               <summary>Edit copy</summary>
               <form method="post" action="{{ url_for('copy_edit', copy_id=c['id']) }}" class="panel-form">
@@ -280,9 +383,13 @@
                   <button type="submit" class="small">Save copy</button>
                 </div>
               </form>
+              {% if copy_saves %}
+                <p class="muted hint-block">This copy has saves. Move them to another copy or delete them before removing it.</p>
+              {% else %}
               <form method="post" action="{{ url_for('copy_delete', copy_id=c['id']) }}" class="inline-form confirm-delete" data-confirm="Remove this copy record?">
                 <button type="submit" class="small danger">Remove copy</button>
               </form>
+              {% endif %}
             </details>
           </div>
         {% endfor %}
@@ -336,6 +443,13 @@
           {% if comp['via_label'] %}<span class="muted">· via {{ comp['via_label'] }}</span>{% endif %}
         </div>
         {% if comp['notes'] %}<div class="copy-notes prewrap">{{ comp['notes'] }}</div>{% endif %}
+        {% for sv in saves_by_completion.get(comp['id'], []) %}
+          <div class="copy-line completion-save">
+            <span class="muted">Save:</span> <span class="save-label">{{ sv['label'] }}</span>
+            {% if sv['missing'] %}<span class="status-tag missing">file missing</span>
+            {% else %}<a class="btn small secondary" href="{{ url_for('save_download', save_id=sv['id']) }}">Download</a>{% endif %}
+          </div>
+        {% endfor %}
         <details class="quiet-panel">
           <summary>Edit</summary>
           <form method="post" action="{{ url_for('complete_edit', completion_id=comp['id']) }}" class="panel-form">

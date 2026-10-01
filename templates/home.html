@@ -64,6 +64,11 @@
   {% else %}
     <p class="muted">No copies with a stored file path yet, so there's nothing to verify. Copies at a location like "NAS", physical media, store licenses, and web links are tracked but aren't checked here.</p>
   {% endif %}
+  <p class="saves-summary">
+    <strong>Save vault:</strong>
+    {% if saves.count %}{{ saves.count }} save{{ '' if saves.count == 1 else 's' }} kept ({{ saves.bytes|filesize }}) in data/assets/saves — back up data/.
+    {% else %}<span class="muted">no saves kept yet. Upload one from a copy on any game's page.</span>{% endif %}
+  </p>
 </div>
 
 {% endblock %}

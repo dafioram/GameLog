@@ -1,4 +1,6 @@
--- Retro Archive schema, version 1 (tracked in PRAGMA user_version; see db.py).
+-- Retro Archive schema, version 2 (tracked in PRAGMA user_version; see db.py).
+-- This file always describes the LATEST schema and is only run for brand-new
+-- databases; existing ones are upgraded step by step by db.MIGRATIONS.
 --
 -- Hierarchy: game -> release -> copy.
 --   game    = the thing you play and track (backlog, completions, tags, cover)
@@ -108,6 +110,26 @@ CREATE TABLE IF NOT EXISTS completions (
     FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE SET NULL
 );
 
+-- Save vault: snapshots of save files you want to keep ("100% file",
+-- "before the final boss"). A save belongs to the copy it was made with
+-- (save formats differ between, say, an N64 cart and a PC source port) and
+-- can optionally be tied to the completion it came from. The file itself is
+-- stored content-addressed in data/assets/saves/<stored_name>.
+CREATE TABLE IF NOT EXISTS saves (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    copy_id         INTEGER NOT NULL,
+    completion_id   INTEGER,
+    label           TEXT NOT NULL,
+    notes           TEXT,
+    filename        TEXT NOT NULL,       -- original upload name, used on download
+    stored_name     TEXT NOT NULL,       -- hash-named file in data/assets/saves
+    sha256          TEXT NOT NULL,
+    size            INTEGER NOT NULL,
+    uploaded_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE CASCADE,
+    FOREIGN KEY (completion_id) REFERENCES completions(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_releases_game        ON releases(game_id);
 CREATE INDEX IF NOT EXISTS idx_releases_platform    ON releases(platform_id);
 CREATE INDEX IF NOT EXISTS idx_copies_release       ON copies(release_id);
@@ -118,6 +140,9 @@ CREATE INDEX IF NOT EXISTS idx_game_tags_tag        ON game_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_backlog_game         ON backlog(game_id);
 CREATE INDEX IF NOT EXISTS idx_completions_game     ON completions(game_id);
 CREATE INDEX IF NOT EXISTS idx_completions_copy     ON completions(copy_id);
+CREATE INDEX IF NOT EXISTS idx_saves_copy           ON saves(copy_id);
+CREATE INDEX IF NOT EXISTS idx_saves_completion     ON saves(completion_id);
+CREATE INDEX IF NOT EXISTS idx_saves_stored_name    ON saves(stored_name);
 
 -- At most one *active* backlog row per game, enforced by the database.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_backlog_one_active

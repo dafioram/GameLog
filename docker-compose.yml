@@ -33,10 +33,11 @@ services:
       RETRO_DATA_DIR: "/data"
       RETRO_SECRET_KEY: "${RETRO_SECRET_KEY:-}"
       RETRO_TRUSTED_ORIGINS: "${RETRO_TRUSTED_ORIGINS:-}"
+      RETRO_MAX_UPLOAD_MB: "${RETRO_MAX_UPLOAD_MB:-64}"
       TZ: "${TZ:-UTC}"
 
     volumes:
-      # Database + cover art. Back up this folder.
+      # Database, cover art and the save vault. Back up this folder.
       - "${RETRO_DATA_PATH:-./data}:/data"
       # Your game files, read-only. Inside the app, enter copy paths as
       # /library/... (e.g. /library/SNES/Chrono Trigger (USA).sfc).

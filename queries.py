@@ -333,6 +333,92 @@ def archive_health_summary():
     return summary
 
 
+# -------------------------------------------------------------------- saves
+
+_SAVE_SELECT = """
+    SELECT s.*, c.release_id, c.format AS copy_format, r.game_id,
+           comp.completed_at AS completion_date
+    FROM saves s
+    JOIN copies c ON c.id = s.copy_id
+    JOIN releases r ON r.id = c.release_id
+    LEFT JOIN completions comp ON comp.id = s.completion_id
+"""
+
+
+def create_save(copy_id, label, filename, stored_name, sha256, size,
+                notes=None, completion_id=None):
+    return get_db().execute(
+        """INSERT INTO saves (copy_id, completion_id, label, notes, filename, stored_name, sha256, size)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (copy_id, completion_id or None, label, notes or None, filename, stored_name, sha256, size),
+    ).lastrowid
+
+
+def update_save(save_id, copy_id, label, notes=None, completion_id=None):
+    get_db().execute(
+        "UPDATE saves SET copy_id = ?, label = ?, notes = ?, completion_id = ? WHERE id = ?",
+        (copy_id, label, notes or None, completion_id or None, save_id),
+    )
+
+
+def delete_save(save_id):
+    get_db().execute("DELETE FROM saves WHERE id = ?", (save_id,))
+
+
+def get_save(save_id):
+    return get_db().execute(_SAVE_SELECT + " WHERE s.id = ?", (save_id,)).fetchone()
+
+
+def get_saves_for_game(game_id):
+    """Newest first. Grouped by copy (and by completion) in the route."""
+    return get_db().execute(
+        _SAVE_SELECT + " WHERE r.game_id = ? ORDER BY s.uploaded_at DESC, s.id DESC",
+        (game_id,),
+    ).fetchall()
+
+
+def stored_save_names_for_game(game_id):
+    rows = get_db().execute(
+        """SELECT DISTINCT s.stored_name FROM saves s
+           JOIN copies c ON c.id = s.copy_id JOIN releases r ON r.id = c.release_id
+           WHERE r.game_id = ?""",
+        (game_id,),
+    ).fetchall()
+    return [r["stored_name"] for r in rows]
+
+
+def save_file_in_use(stored_name):
+    return get_db().execute(
+        "SELECT 1 FROM saves WHERE stored_name = ? LIMIT 1", (stored_name,)
+    ).fetchone() is not None
+
+
+def count_saves_for_copy(copy_id):
+    return get_db().execute("SELECT COUNT(*) FROM saves WHERE copy_id = ?", (copy_id,)).fetchone()[0]
+
+
+def count_saves_for_release(release_id):
+    return get_db().execute(
+        "SELECT COUNT(*) FROM saves s JOIN copies c ON c.id = s.copy_id WHERE c.release_id = ?",
+        (release_id,),
+    ).fetchone()[0]
+
+
+def count_saves_for_game(game_id):
+    return get_db().execute(
+        """SELECT COUNT(*) FROM saves s JOIN copies c ON c.id = s.copy_id
+           JOIN releases r ON r.id = c.release_id WHERE r.game_id = ?""",
+        (game_id,),
+    ).fetchone()[0]
+
+
+def saves_summary():
+    row = get_db().execute(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes, COUNT(DISTINCT stored_name) AS files FROM saves"
+    ).fetchone()
+    return {"count": row["n"], "bytes": row["bytes"], "files": row["files"]}
+
+
 # ------------------------------------------------------------------ backlog
 
 def get_backlog_entry_for_game(game_id):

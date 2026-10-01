@@ -554,9 +554,32 @@ def test_default_paths_live_under_data_folder():
 
 
 def test_new_database_records_schema_version(app):
+    import db as db_module
     conn = sqlite3.connect(app.config["DATABASE"])
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION == 2
     conn.close()
+
+
+def test_version_1_database_is_migrated_to_add_the_save_vault(tmp_path):
+    """A database from before the save vault (schema v1) upgrades in place,
+    keeping its data."""
+    from app import create_app
+    data = tmp_path / "data"
+    app1 = create_app(data_dir=data)
+    client = app1.test_client()
+    create_game(client, title="Kept Across Upgrade")
+    conn = sqlite3.connect(app1.config["DATABASE"])
+    conn.execute("DROP TABLE saves")
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+    app2 = create_app(data_dir=data)
+    conn = sqlite3.connect(app2.config["DATABASE"])
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'saves'").fetchone()
+    conn.close()
+    assert "Kept Across Upgrade" in app2.test_client().get("/games").data.decode()
 
 
 def test_prototype_database_is_refused_with_a_clear_message(tmp_path):
@@ -607,3 +630,188 @@ def test_native_defaults_are_localhost_and_no_debugger(monkeypatch):
 def test_healthz_reports_ok(client):
     resp = client.get("/healthz")
     assert resp.status_code == 200 and resp.get_json() == {"ok": True}
+
+
+# ================================================================ save vault
+
+SAVE_BYTES = b"SRAM" + bytes(range(256)) * 32
+
+
+def _upload_save(client, copy_id, data=SAVE_BYTES, name="Chrono Trigger (USA).srm", **form):
+    form = {"save": (BytesIO(data), name), **form}
+    return client.post(f"/copies/{copy_id}/saves/new", data=form,
+                       content_type="multipart/form-data", follow_redirects=True)
+
+
+def _saves_dir(app):
+    return app.config["SAVES_DIR"]
+
+
+def _stored_files(app):
+    d = _saves_dir(app)
+    return sorted(f for f in os.listdir(d) if not f.startswith(".")) if os.path.isdir(d) else []
+
+
+def test_upload_and_download_a_save(client, app):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Digital ROM", location="NAS")
+    resp = _upload_save(client, 1, label="Before Lavos", notes="Slot 2, all techs")
+    assert b"Save uploaded" in resp.data
+    body = page(client, f"/games/{game_id}")
+    assert "Before Lavos" in body and "Slot 2, all techs" in body
+    assert "Chrono Trigger (USA).srm" in body
+
+    save_id = int(re.search(r"/saves/(\d+)/download", body).group(1))
+    dl = client.get(f"/saves/{save_id}/download")
+    assert dl.status_code == 200 and dl.data == SAVE_BYTES
+    assert "Chrono Trigger (USA).srm" in dl.headers["Content-Disposition"]
+    # stored hash-named inside this app's data dir
+    assert _stored_files(app) and _stored_files(app)[0].endswith(".srm")
+
+
+def test_save_label_defaults_to_file_name_and_empty_files_are_rejected(client, app):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Physical")
+    assert b"That file is empty" in _upload_save(client, 1, data=b"").data
+    assert _stored_files(app) == []
+    _upload_save(client, 1, name="memcard.mcr")
+    assert '<span class="save-label">memcard.mcr</span>' in page(client, f"/games/{game_id}")
+
+
+def test_upload_name_is_reduced_to_a_safe_basename(client):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Physical")
+    _upload_save(client, 1, name="..\\..\\evil/../../etc/passwd")
+    body = page(client, f"/games/{game_id}")
+    assert "etc/passwd" not in body and "passwd" in body
+
+
+def test_identical_saves_share_one_file_until_the_last_is_deleted(client, app):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Physical")
+    _upload_save(client, 1, label="A")
+    _upload_save(client, 1, label="B")
+    assert len(_stored_files(app)) == 1
+    ids = [int(x) for x in re.findall(r"/saves/(\d+)/download", page(client, f"/games/{game_id}"))]
+    client.post(f"/saves/{ids[0]}/delete")
+    assert len(_stored_files(app)) == 1          # still used by the other save
+    client.post(f"/saves/{ids[1]}/delete")
+    assert _stored_files(app) == []              # last reference gone -> file removed
+
+
+def test_copy_and_release_with_saves_cannot_be_deleted(client):
+    game_id = create_game(client)
+    client.post(f"/games/{game_id}/releases/new", data={"platform": "SNES", "region": "Japan"})
+    add_copy(client, 2, format="Physical")      # copy on the 2nd release
+    _upload_save(client, 1)
+    resp = client.post("/copies/1/delete", follow_redirects=True)
+    assert b"has 1 saved game" in resp.data
+    resp = client.post("/releases/2/delete", follow_redirects=True)
+    assert b"saved game" in resp.data
+    assert "Japan" in page(client, f"/games/{game_id}")
+
+
+def test_save_can_move_to_another_copy_of_the_same_game_only(client):
+    g1 = create_game(client, title="One")
+    add_copy(client, 1, format="Physical")
+    add_copy(client, 1, format="Source port", via_platform="PC")
+    g2 = create_game(client, title="Two")
+    add_copy(client, 2, format="Physical")      # copy 3 belongs to game Two
+    _upload_save(client, 1)
+    sid = int(re.search(r"/saves/(\d+)/download", page(client, f"/games/{g1}")).group(1))
+
+    resp = client.post(f"/saves/{sid}/edit", data={"copy_id": "3", "label": "x"}, follow_redirects=True)
+    assert b"same game" in resp.data
+    client.post(f"/saves/{sid}/edit", data={"copy_id": "2", "label": "Moved"})
+    # copy 1 is now free of saves and can be removed
+    assert b"Copy removed" in client.post("/copies/1/delete", follow_redirects=True).data
+    assert "Moved" in page(client, f"/games/{g1}")
+
+
+def test_mark_beaten_can_keep_the_save_from_that_run(client, app):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Source port", via_platform="PC")
+    resp = client.post(f"/games/{game_id}/complete",
+                       data={"copy_id": "1", "rating": "9", "save_label": "Clear save",
+                             "save": (BytesIO(SAVE_BYTES), "clear.sav")},
+                       content_type="multipart/form-data", follow_redirects=True)
+    assert b"Save file kept" in resp.data
+    body = page(client, f"/games/{game_id}")
+    assert "from the " in body and "completion" in body          # shown under the copy
+    assert 'class="copy-line completion-save"' in body           # and under the completion
+
+
+def test_mark_beaten_with_a_save_but_no_copy_saves_nothing(client, app):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Physical")
+    resp = client.post(f"/games/{game_id}/complete",
+                       data={"save": (BytesIO(SAVE_BYTES), "clear.sav")},
+                       content_type="multipart/form-data", follow_redirects=True)
+    assert b"pick which copy" in resp.data
+    assert "Not marked as beaten yet" in page(client, f"/games/{game_id}")
+    assert _stored_files(app) == []
+
+
+def test_deleting_a_completion_keeps_its_save(client):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Physical")
+    client.post(f"/games/{game_id}/complete",
+                data={"copy_id": "1", "save": (BytesIO(SAVE_BYTES), "clear.sav")},
+                content_type="multipart/form-data")
+    client.post("/completions/1/delete")
+    body = page(client, f"/games/{game_id}")
+    assert "clear.sav" in body and "from the" not in body
+
+
+def test_save_cannot_link_another_games_completion(client):
+    g1 = create_game(client, title="One")
+    add_copy(client, 1, format="Physical")
+    g2 = create_game(client, title="Two")
+    client.post(f"/games/{g2}/complete", data={})
+    resp = _upload_save(client, 1, completion_id="1")
+    assert b"belong to this game" in resp.data
+
+
+def test_deleting_a_game_removes_its_save_files(client, app):
+    keep = create_game(client, title="Keep")
+    add_copy(client, 1, format="Physical")
+    _upload_save(client, 1, data=b"keep me")
+    gone = create_game(client, title="Gone")
+    add_copy(client, 2, format="Physical")
+    _upload_save(client, 2, data=b"delete me")
+    assert len(_stored_files(app)) == 2
+    client.post(f"/games/{gone}/delete")
+    assert len(_stored_files(app)) == 1
+    sid = int(re.search(r"/saves/(\d+)/download", page(client, f"/games/{keep}")).group(1))
+    assert client.get(f"/saves/{sid}/download").data == b"keep me"
+
+
+def test_missing_save_file_is_flagged_not_crashing(client, app):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Physical")
+    _upload_save(client, 1)
+    for f in _stored_files(app):
+        os.unlink(os.path.join(_saves_dir(app), f))
+    body = page(client, f"/games/{game_id}")
+    assert "file missing" in body
+    resp = client.get("/saves/1/download", follow_redirects=True)
+    assert b"missing" in resp.data
+
+
+def test_upload_limit_is_configurable(tmp_path, monkeypatch):
+    from app import create_app
+    monkeypatch.setenv("RETRO_MAX_UPLOAD_MB", "1")
+    app = create_app(data_dir=tmp_path / "data")
+    client = app.test_client()
+    create_game(client)
+    add_copy(client, 1, format="Physical")
+    resp = _upload_save(client, 1, data=b"x" * (2 * 1024 * 1024))
+    assert b"too large (limit 1 MB" in resp.data
+
+
+def test_home_shows_save_vault_summary(client):
+    create_game(client)
+    add_copy(client, 1, format="Physical")
+    assert "no saves kept yet" in page(client, "/")
+    _upload_save(client, 1)
+    assert "1 save kept" in page(client, "/")

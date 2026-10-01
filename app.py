@@ -11,13 +11,13 @@ from werkzeug.exceptions import RequestEntityTooLarge
 import config
 import db
 import queries as q
+import storage
 from hashing import hash_file, hash_bytes
 
 # How many hex characters of the sha256 to use as a stored cover filename.
 # 16 hex chars = 64 bits: collision risk is negligible for a personal
 # library, and it keeps filenames short.
 COVER_HASH_LEN = 16
-MAX_UPLOAD_MB = 16
 
 
 class FormError(ValueError):
@@ -32,7 +32,9 @@ def create_app(database_path=None, data_dir=None):
         DATA_DIR=str(data_dir),
         DATABASE=str(database_path or data_dir / db.DB_FILENAME),
         COVERS_DIR=str(data_dir / "assets" / "covers"),
-        MAX_CONTENT_LENGTH=MAX_UPLOAD_MB * 1024 * 1024,
+        SAVES_DIR=str(data_dir / "assets" / "saves"),
+        MAX_UPLOAD_MB=config.max_upload_mb(),
+        MAX_CONTENT_LENGTH=config.max_upload_mb() * 1024 * 1024,
         # Extra origins allowed to submit forms (only needed behind a reverse
         # proxy that rewrites the Host header). Comma-separated host[:port].
         TRUSTED_ORIGINS={h.strip() for h in
@@ -84,7 +86,8 @@ def register_security(app):
 
     @app.errorhandler(RequestEntityTooLarge)
     def too_large(e):
-        flash(f"That file is too large (limit {MAX_UPLOAD_MB} MB).", "error")
+        flash(f"That file is too large (limit {app.config['MAX_UPLOAD_MB']} MB; "
+              "set RETRO_MAX_UPLOAD_MB to change it). Zip large save folders.", "error")
         return redirect(safe_next(_same_site_referrer(), url_for("home")))
 
 
@@ -214,6 +217,15 @@ def _completion_fields(game_id):
     )
 
 
+def _completion_choice(game_id, field="completion_id"):
+    completion_id = request.form.get(field, type=int)
+    if completion_id:
+        comp = q.get_completion(completion_id)
+        if not comp or comp["game_id"] != game_id:
+            raise FormError("That completion entry doesn't belong to this game.")
+    return completion_id or None
+
+
 def sniff_image_ext(data):
     """Decide the image type from the bytes themselves, not the filename."""
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -277,6 +289,19 @@ def register_routes(app):
     def covers_dir():
         return Path(app.config["COVERS_DIR"])
 
+    def saves_dir():
+        return Path(app.config["SAVES_DIR"])
+
+    def store_save_upload(upload):
+        try:
+            return storage.store_upload(upload, saves_dir())
+        except ValueError as e:
+            raise FormError(str(e))
+
+    def cleanup_save_files(stored_names):
+        for name in set(stored_names):
+            storage.remove_if_unreferenced(saves_dir(), name, q.save_file_in_use(name))
+
     def to_game(game_id):
         return redirect(url_for("game_detail", game_id=game_id))
 
@@ -305,6 +330,7 @@ def register_routes(app):
             recent=q.get_recent_games(limit=8),
             totals=q.get_totals(),
             health=q.archive_health_summary(),
+            saves=q.saves_summary(),
         )
 
     # ------------------------------------------------------------------ games
@@ -376,10 +402,21 @@ def register_routes(app):
                                            c["copy_via_platform_name"], c["copy_location"])
                                 if c["copy_id"] else None)
             completions.append(row)
+        saves_by_copy, saves_by_completion = {}, {}
+        for s in q.get_saves_for_game(game_id):
+            row = dict(s)
+            row["missing"] = not (saves_dir() / s["stored_name"]).is_file()
+            saves_by_copy.setdefault(s["copy_id"], []).append(row)
+            if s["completion_id"]:
+                saves_by_completion.setdefault(s["completion_id"], []).append(row)
         return render_template(
             "game_detail.html",
             game=game,
             status=q.get_game_status(game_id),
+            saves_by_copy=saves_by_copy,
+            saves_by_completion=saves_by_completion,
+            save_count=sum(len(v) for v in saves_by_copy.values()),
+            max_upload_mb=app.config["MAX_UPLOAD_MB"],
             releases_data=releases_data,
             game_copies=q.get_copies_for_game(game_id),
             game_tags=q.get_tags_for_game(game_id),
@@ -418,8 +455,10 @@ def register_routes(app):
     @app.route("/games/<int:game_id>/delete", methods=["POST"])
     def game_delete(game_id):
         game = game_or_404(game_id)
+        save_files = q.stored_save_names_for_game(game_id)
         with db.transaction():
             q.delete_game(game_id)
+        cleanup_save_files(save_files)
         flash(f'Deleted "{game["title"]}".', "success")
         return redirect(url_for("games_list"))
 
@@ -530,6 +569,11 @@ def register_routes(app):
         if len(q.get_releases_for_game(release["game_id"])) <= 1:
             flash("A game needs at least one release. Delete the game instead.", "error")
             return to_game(release["game_id"])
+        n_saves = q.count_saves_for_release(release_id)
+        if n_saves:
+            flash(f"This release's copies have {n_saves} saved game(s). Move them to another "
+                  "copy or delete them first — save files can't be recovered.", "error")
+            return to_game(release["game_id"])
         with db.transaction():
             q.delete_release(release_id)
         flash("Release deleted.", "success")
@@ -583,6 +627,11 @@ def register_routes(app):
         copy = q.get_copy(copy_id)
         if not copy:
             abort(404)
+        n_saves = q.count_saves_for_copy(copy_id)
+        if n_saves:
+            flash(f"This copy has {n_saves} saved game(s). Move them to another copy or "
+                  "delete them first — save files can't be recovered.", "error")
+            return to_game(copy["game_id"])
         with db.transaction():
             q.delete_copy(copy_id)
         flash("Copy removed.", "success")
@@ -716,13 +765,30 @@ def register_routes(app):
     @app.route("/games/<int:game_id>/complete", methods=["POST"])
     def complete_add(game_id):
         game_or_404(game_id)
+        upload = request.files.get("save")
+        stored = None
         try:
+            fields = _completion_fields(game_id)
+            if upload and upload.filename:
+                if not fields["copy_id"]:
+                    raise FormError("To keep a save with this completion, pick which copy "
+                                    "you played it on (Played via).")
+                stored = store_save_upload(upload)
             with db.transaction():
-                q.add_completion(game_id, **_completion_fields(game_id))
+                completion_id = q.add_completion(game_id, **fields)
+                if stored:
+                    stored_name, sha, size = stored
+                    filename = storage.safe_display_name(upload.filename)
+                    q.create_save(copy_id=fields["copy_id"], completion_id=completion_id,
+                                  label=_text("save_label") or filename,
+                                  filename=filename, stored_name=stored_name, sha256=sha, size=size)
         except FormError as e:
             flash(str(e), "error")
             return to_game(game_id)
-        flash("Marked as beaten.", "success")
+        finally:
+            if stored:  # no-op if the save row was written
+                cleanup_save_files([stored[0]])
+        flash("Marked as beaten." + (" Save file kept." if stored else ""), "success")
         return to_game(game_id)
 
     @app.route("/completions/<int:completion_id>/edit", methods=["POST"])
@@ -748,6 +814,79 @@ def register_routes(app):
             q.delete_completion(completion_id)
         flash("Completion entry removed.", "success")
         return to_game(comp["game_id"])
+
+    # ------------------------------------------------------------------ saves
+
+    @app.route("/copies/<int:copy_id>/saves/new", methods=["POST"])
+    def save_new(copy_id):
+        copy = q.get_copy(copy_id)
+        if not copy:
+            abort(404)
+        upload = request.files.get("save")
+        stored = None
+        try:
+            if not upload or not upload.filename:
+                raise FormError("Choose a save file to upload.")
+            completion_id = _completion_choice(copy["game_id"])
+            stored = store_save_upload(upload)
+            stored_name, sha, size = stored
+            filename = storage.safe_display_name(upload.filename)
+            with db.transaction():
+                q.create_save(copy_id=copy_id, completion_id=completion_id,
+                              label=_text("label") or filename, notes=_multiline("notes"),
+                              filename=filename, stored_name=stored_name, sha256=sha, size=size)
+        except FormError as e:
+            flash(str(e), "error")
+            return to_game(copy["game_id"])
+        finally:
+            if stored:
+                cleanup_save_files([stored[0]])
+        flash("Save uploaded.", "success")
+        return to_game(copy["game_id"])
+
+    @app.route("/saves/<int:save_id>/download")
+    def save_download(save_id):
+        save = q.get_save(save_id)
+        if not save:
+            abort(404)
+        if not (saves_dir() / save["stored_name"]).is_file():
+            flash("That save's file is missing from data/assets/saves.", "error")
+            return to_game(save["game_id"])
+        return send_from_directory(saves_dir(), save["stored_name"], as_attachment=True,
+                                   download_name=save["filename"],
+                                   mimetype="application/octet-stream")
+
+    @app.route("/saves/<int:save_id>/edit", methods=["POST"])
+    def save_edit(save_id):
+        save = q.get_save(save_id)
+        if not save:
+            abort(404)
+        try:
+            copy_id = request.form.get("copy_id", type=int) or save["copy_id"]
+            target = q.get_copy(copy_id)
+            if not target or target["game_id"] != save["game_id"]:
+                raise FormError("A save can only move to another copy of the same game.")
+            with db.transaction():
+                q.update_save(save_id, copy_id=copy_id,
+                              label=_text("label") or save["filename"],
+                              notes=_multiline("notes"),
+                              completion_id=_completion_choice(save["game_id"]))
+        except FormError as e:
+            flash(str(e), "error")
+            return to_game(save["game_id"])
+        flash("Save updated.", "success")
+        return to_game(save["game_id"])
+
+    @app.route("/saves/<int:save_id>/delete", methods=["POST"])
+    def save_delete(save_id):
+        save = q.get_save(save_id)
+        if not save:
+            abort(404)
+        with db.transaction():
+            q.delete_save(save_id)
+        cleanup_save_files([save["stored_name"]])
+        flash("Save deleted.", "success")
+        return to_game(save["game_id"])
 
     # ------------------------------------------------------------------ stats
 

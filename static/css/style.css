@@ -564,3 +564,19 @@ hr.rule { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
   form.search-form input[type="text"] { width: 140px; }
   .tag-add-form input { width: 150px; }
 }
+
+/* ---------------------------------------------------------- save vault */
+
+.copy-saves { margin-top: 6px; }
+.saves-head { font-size: 0.82rem; color: var(--ink-soft); margin: 8px 0 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+.save-list { list-style: none; margin: 0; padding: 0; }
+.save { padding: 6px 0 4px 10px; border-left: 3px solid var(--accent-soft); margin: 4px 0; }
+.save-main { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 0.9rem; }
+.save-label { font-weight: 600; }
+.save-meta { font-size: 0.8rem; overflow-wrap: anywhere; }
+.save-notes { font-size: 0.85rem; margin-top: 3px; }
+.save .quiet-panel { margin: 4px 0 0; }
+fieldset.save-attach { border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px 12px 0; margin: 0 0 12px; }
+fieldset.save-attach legend { font-size: 0.85rem; color: var(--ink); padding: 0 4px; }
+.completion-save { margin-top: 4px; }
+.saves-summary { margin: 12px 0 0; font-size: 0.9rem; }

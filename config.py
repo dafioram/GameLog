@@ -70,5 +70,12 @@ def port():
     return env_int("RETRO_PORT", 5050)
 
 
+def max_upload_mb():
+    # Covers and save files share this limit. 64 MB fits every console
+    # memory-card image (a GameCube Memory Card 2043 is just over 16 MB);
+    # zip large PC save folders, or raise it.
+    return max(1, env_int("RETRO_MAX_UPLOAD_MB", 64))
+
+
 def debug():
     return env_bool("RETRO_DEBUG", False)

@@ -18,9 +18,33 @@ DB_FILENAME = DEFAULT_DB_PATH.name
 # changes after this point. Each migration takes the connection and brings
 # the database from (version - 1) to version. schema.sql always describes
 # the *latest* schema and is only executed for brand-new databases.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+def _migrate_2_save_vault(db):
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS saves (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            copy_id         INTEGER NOT NULL,
+            completion_id   INTEGER,
+            label           TEXT NOT NULL,
+            notes           TEXT,
+            filename        TEXT NOT NULL,
+            stored_name     TEXT NOT NULL,
+            sha256          TEXT NOT NULL,
+            size            INTEGER NOT NULL,
+            uploaded_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE CASCADE,
+            FOREIGN KEY (completion_id) REFERENCES completions(id) ON DELETE SET NULL
+        )""")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_saves_copy ON saves(copy_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_saves_completion ON saves(completion_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_saves_stored_name ON saves(stored_name)")
+
+
+# version -> function bringing the database from (version - 1) to version.
 MIGRATIONS = {
-    # 2: lambda db: db.execute("ALTER TABLE games ADD COLUMN example TEXT"),
+    2: _migrate_2_save_vault,
 }
 
 
@@ -100,10 +124,19 @@ def init_db():
         db.commit()
         return
 
+    # Each step runs in an explicit transaction (Python's sqlite3 would
+    # otherwise auto-commit DDL statement by statement), so a failed step
+    # leaves the database exactly at the previous version.
     for target in range(version + 1, SCHEMA_VERSION + 1):
-        MIGRATIONS[target](db)
-        db.execute(f"PRAGMA user_version = {target}")
         db.commit()
+        db.execute("BEGIN")
+        try:
+            MIGRATIONS[target](db)
+            db.execute(f"PRAGMA user_version = {target}")
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
 
 def referenced_cover_files():
