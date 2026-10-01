@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Games — Retro Archive{% endblock %}
+{% block content %}
+
+<div class="section-title">
+  <h2>Games {% if games %}<span class="muted">({{ games|length }})</span>{% endif %}</h2>
+  <a class="btn" href="{{ url_for('game_new') }}">Add a game</a>
+</div>
+
+<form class="filter-bar" method="get" action="{{ url_for('games_list') }}">
+  {% if filters.q %}<input type="hidden" name="q" value="{{ filters.q }}">{% endif %}
+
+  <div class="field">
+    <label for="f-platform">Platform</label>
+    <select id="f-platform" name="platform_id">
+      <option value="">All platforms</option>
+      {% for p in platforms %}
+        <option value="{{ p['id'] }}" {{ 'selected' if filters.platform_id == p['id'] }}>{{ p['name'] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="f-location">Location</label>
+    <select id="f-location" name="location">
+      <option value="">Any location</option>
+      {% for l in locations %}
+        <option value="{{ l }}" {{ 'selected' if filters.location and filters.location|lower == l|lower }}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="f-format">Format</label>
+    <select id="f-format" name="format">
+      <option value="">Any format</option>
+      {% for f in formats %}
+        <option value="{{ f }}" {{ 'selected' if filters.format and filters.format|lower == f|lower }}>{{ f }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="f-tag">Tag</label>
+    <select id="f-tag" name="tag_id">
+      <option value="">Any tag</option>
+      {% for t in tags %}
+        <option value="{{ t['id'] }}" {{ 'selected' if filters.tag_id == t['id'] }}>{{ t['name'] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="f-own">Status</label>
+    <select id="f-own" name="ownership">
+      <option value="" {{ 'selected' if not filters.ownership }}>All games</option>
+      <option value="owned" {{ 'selected' if filters.ownership == 'owned' }}>Owned</option>
+      <option value="playable" {{ 'selected' if filters.ownership == 'playable' }}>Playable (incl. owned)</option>
+      <option value="not_playable" {{ 'selected' if filters.ownership == 'not_playable' }}>Not playable</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="f-sort">Sort</label>
+    <select id="f-sort" name="sort">
+      <option value="title" {{ 'selected' if filters.sort == 'title' }}>Title</option>
+      <option value="year" {{ 'selected' if filters.sort == 'year' }}>Release year</option>
+      <option value="recent" {{ 'selected' if filters.sort == 'recent' }}>Recently added</option>
+      <option value="length_asc" {{ 'selected' if filters.sort == 'length_asc' }}>Length: shortest first</option>
+      <option value="length_desc" {{ 'selected' if filters.sort == 'length_desc' }}>Length: longest first</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <button type="submit">Apply</button>
+  </div>
+  {% if filters.q or filters.platform_id or filters.location or filters.format or filters.tag_id or filters.ownership or filters.sort != 'title' %}
+    <div class="field"><a href="{{ url_for('games_list') }}">Clear filters</a></div>
+  {% endif %}
+</form>
+
+{% if filters.q %}<p class="muted">Search: “{{ filters.q }}”</p>{% endif %}
+
+{% if games %}
+  <div class="ledger">
+    {% for g in games %}
+      <div class="game-row" data-game-id="{{ g['game_id'] }}">
+        {% if g['cover_image_path'] %}
+          <img class="cover-mini" src="{{ url_for('cover_file', filename=g['cover_image_path']) }}" alt="" loading="lazy">
+        {% else %}
+          <div class="cover-mini-placeholder">no art</div>
+        {% endif %}
+        <div>
+          <div class="title-line">
+            <a href="{{ url_for('game_detail', game_id=g['game_id']) }}">{{ g['title'] }}</a>
+            {% if g['edition_note'] %}<span class="muted"> — {{ g['edition_note'] }}</span>{% endif %}
+          </div>
+          <div class="meta-line">
+            <span class="field">{{ g['platforms']|join(' · ') }}{% if g['via_platforms'] %} <span class="via">· via {{ g['via_platforms']|join(', ') }}</span>{% endif %}</span>
+            {% if g['first_year'] %}<span class="field">{{ g['first_year'] }}</span>{% endif %}
+            {% if g['length_hours'] is not none %}<span class="field">{{ g['length_hours']|hours }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="status-icons">
+          {% if g['owned'] %}
+            <span class="status" title="You own at least one copy"><span class="dot owned"></span>Owned</span>
+          {% elif g['playable'] %}
+            <span class="status" title="Playable via a link or subscription, but not owned"><span class="dot playable"></span>Playable</span>
+          {% else %}
+            <span class="status muted" title="No copies recorded"><span class="dot none"></span>—</span>
+          {% endif %}
+          {% if g['in_backlog'] %}<span class="badge backlog">Backlog</span>{% endif %}
+          {% if g['completed'] %}<span class="badge beaten">Beaten</span>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state">No games match these filters.</div>
+{% endif %}
+
+{% endblock %}

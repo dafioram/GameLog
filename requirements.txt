@@ -1,0 +1,8 @@
+Flask>=3.0
+
+# Production server. The Docker image installs it automatically; only needed
+# natively if you want `gunicorn -c gunicorn.conf.py wsgi:app`:
+# gunicorn>=22
+
+# Only needed to run the test suite:
+# pytest>=7.0

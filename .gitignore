@@ -1,0 +1,54 @@
+# --------------------------------------------------------------- user data
+# Everything in data/ is yours, not source: the SQLite database (and its
+# journal/WAL side-files), cover art, and anything else the app writes.
+# The app creates the folder on first run.
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# Default Docker mount point for your game files (RETRO_LIBRARY_DIR).
+library/*
+!library/.gitkeep
+
+# ---------------------------------------------------------- local settings
+# .env holds your machine's settings (and maybe a secret key);
+# .env.example is the documented template and IS committed.
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+
+# ----------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --------------------------------------------------------- virtual envs
+venv/
+.venv/
+env/
+ENV/
+
+# ------------------------------------------------------------------ Flask
+instance/
+.flask_session/
+
+# ------------------------------------------------------------ build output
+*.zip
+
+# ------------------------------------------------------ editor / OS cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

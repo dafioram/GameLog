@@ -1,0 +1,31 @@
+"""Common platform list used to pre-populate a fresh database.
+The user can add more platforms at any time from the game/copy forms."""
+
+DEFAULT_PLATFORMS = [
+    "NES",
+    "SNES",
+    "Nintendo 64",
+    "GameCube",
+    "Wii",
+    "Wii U",
+    "Switch",
+    "Game Boy",
+    "Game Boy Color",
+    "Game Boy Advance",
+    "Nintendo DS",
+    "Nintendo 3DS",
+    "Sega Master System",
+    "Sega Genesis",
+    "Sega Saturn",
+    "Sega Dreamcast",
+    "Sega Game Gear",
+    "PlayStation",
+    "PlayStation 2",
+    "PlayStation 3",
+    "PlayStation Portable",
+    "PlayStation Vita",
+    "Xbox",
+    "Xbox 360",
+    "Atari 2600",
+    "PC",
+]

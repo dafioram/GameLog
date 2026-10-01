@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Add a game — Retro Archive{% endblock %}
+{% block content %}
+
+<h2>Add a game</h2>
+<p class="muted">Only a title and platform are required. Everything else can be filled in later or left blank. Copies (how you can actually play it) are added from the game's page.</p>
+
+<form method="post" action="{{ url_for('game_new') }}" class="card" id="game-form">
+  <h3>Game</h3>
+  <div class="field-row">
+    <div class="field-group">
+      <label for="title">Title *</label>
+      <input type="text" id="title" name="title" required value="{{ form.get('title','') }}">
+    </div>
+    <div class="field-group">
+      <label for="platform">Platform *</label>
+      <input type="text" id="platform" name="platform" list="platform-list" required value="{{ form.get('platform','') }}">
+      <datalist id="platform-list">
+        {% for p in platforms %}<option value="{{ p['name'] }}">{% endfor %}
+      </datalist>
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field-group">
+      <label for="edition_note">Edition note</label>
+      <input type="text" id="edition_note" name="edition_note" placeholder="e.g. 2026 Remake" value="{{ form.get('edition_note','') }}">
+    </div>
+    <div class="field-group">
+      <label for="length_hours">Length (hours)</label>
+      <input type="number" id="length_hours" name="length_hours" step="0.5" min="0" placeholder="e.g. 12" value="{{ form.get('length_hours','') }}">
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field-group">
+      <label for="tags">Tags <span class="hint">— comma-separated: genre, "Rom hack", "Co-op"…</span></label>
+      <input type="text" id="tags" name="tags" list="tag-list" placeholder="JRPG, Time travel" value="{{ form.get('tags','') }}">
+      <datalist id="tag-list">{% for t in tags %}<option value="{{ t['name'] }}">{% endfor %}</datalist>
+    </div>
+    {% if all_games %}
+    <div class="field-group">
+      <label for="related_game_id">Related to <span class="hint">— e.g. the original, for a remake</span></label>
+      <select id="related_game_id" name="related_game_id">
+        <option value="">— none —</option>
+        {% for g in all_games %}
+          <option value="{{ g['id'] }}" {{ 'selected' if form.get('related_game_id') == g['id']|string }}>{{ g['title'] }}{% if g['edition_note'] %} — {{ g['edition_note'] }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </div>
+
+  <hr class="rule">
+  <h3>First release</h3>
+  <div class="field-row">
+    <div class="field-group">
+      <label for="region">Region</label>
+      <input type="text" id="region" name="region" placeholder="USA, EU, Japan…" value="{{ form.get('region','') }}">
+    </div>
+    <div class="field-group">
+      <label for="release_year">Release year</label>
+      <input type="number" id="release_year" name="release_year" min="1950" max="2100" value="{{ form.get('release_year','') }}">
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field-group">
+      <label for="publisher">Publisher</label>
+      <input type="text" id="publisher" name="publisher" value="{{ form.get('publisher','') }}">
+    </div>
+    <div class="field-group">
+      <label for="developer">Developer</label>
+      <input type="text" id="developer" name="developer" value="{{ form.get('developer','') }}">
+    </div>
+    <div class="field-group">
+      <label for="serial">Serial / catalog #</label>
+      <input type="text" id="serial" name="serial" value="{{ form.get('serial','') }}">
+    </div>
+  </div>
+  <div class="field-group">
+    <label for="notes">Release notes</label>
+    <textarea id="notes" name="notes">{{ form.get('notes','') }}</textarea>
+  </div>
+
+  <button type="submit">Add game</button>
+</form>
+
+{% endblock %}

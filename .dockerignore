@@ -1,0 +1,25 @@
+# Keep the image to source code only — user data and secrets are mounted or
+# passed in at runtime, never baked into the image.
+.git
+.gitignore
+.dockerignore
+.env
+.env.*
+!.env.example
+data/
+library/
+tests/
+**/__pycache__
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+*.zip
+*.db
+*.sqlite3
+.DS_Store
+.vscode/
+.idea/

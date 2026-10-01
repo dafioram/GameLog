@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}{{ game['title'] }} — Retro Archive{% endblock %}
+
+{% macro copy_fields(prefix, c=None) %}
+  <div class="field-row">
+    <div class="field-group">
+      <label for="{{ prefix }}-format">Format</label>
+      <input type="text" id="{{ prefix }}-format" name="format" list="format-list" value="{{ c['format'] or '' if c else '' }}" placeholder="Physical, Steam, Digital ROM, Source port, Web, Patched ROM…">
+    </div>
+    <div class="field-group">
+      <label for="{{ prefix }}-via">Played via <span class="hint">— if not its own platform</span></label>
+      <input type="text" id="{{ prefix }}-via" name="via_platform" list="platform-list" value="{{ c['via_platform_name'] or '' if c else '' }}" placeholder="e.g. Switch, PC">
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field-group">
+      <label for="{{ prefix }}-location">Location</label>
+      <input type="text" id="{{ prefix }}-location" name="location" list="location-list" value="{{ c['location'] or '' if c else '' }}" placeholder="NAS, Closet box 3, Steam Deck…">
+    </div>
+    <div class="field-group">
+      <label for="{{ prefix }}-path">File path <span class="hint">— only if this app can read it</span></label>
+      <input type="text" id="{{ prefix }}-path" name="path" value="{{ c['path'] or '' if c else '' }}" placeholder="/mnt/games/SNES/Chrono Trigger (USA).sfc">
+    </div>
+  </div>
+  <div class="field-group">
+    <label for="{{ prefix }}-url">Link <span class="hint">— web-playable version, store page, or project page</span></label>
+    <input type="url" id="{{ prefix }}-url" name="url" value="{{ c['url'] or '' if c else '' }}" placeholder="https://…">
+  </div>
+  <div class="field-group">
+    <label for="{{ prefix }}-notes">Notes</label>
+    <textarea id="{{ prefix }}-notes" name="notes" placeholder="Build/version, patch used, needs the USA 1.0 ROM, controller setup…">{{ c['notes'] or '' if c else '' }}</textarea>
+  </div>
+  <label class="check">
+    <input type="hidden" name="is_owned" value="0">
+    <input type="checkbox" name="is_owned" value="1" {{ 'checked' if (not c or c['is_owned']) }}>
+    I own this
+    <span class="hint">— untick for web links or subscription access (e.g. Switch Online): those count as <em>playable</em>, not owned</span>
+  </label>
+{% endmacro %}
+
+{% macro played_via_select(prefix, selected=None) %}
+  {% if game_copies %}
+  <div class="field-group">
+    <label for="{{ prefix }}-copy">Played via</label>
+    <select id="{{ prefix }}-copy" name="copy_id">
+      <option value="">— not recorded —</option>
+      {% for gc in game_copies %}
+        <option value="{{ gc['id'] }}" {{ 'selected' if selected == gc['id'] }}>{{ gc|copy_label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+
+<datalist id="platform-list">{% for p in platforms %}<option value="{{ p['name'] }}">{% endfor %}</datalist>
+<datalist id="format-list">{% for f in formats %}<option value="{{ f }}">{% endfor %}</datalist>
+<datalist id="location-list">{% for l in locations %}<option value="{{ l }}">{% endfor %}</datalist>
+<datalist id="tag-list">{% for t in tags %}<option value="{{ t['name'] }}">{% endfor %}</datalist>
+
+<div class="detail-head">
+  <div class="detail-cover">
+    {% if game['cover_image_path'] %}
+      <img src="{{ url_for('cover_file', filename=game['cover_image_path']) }}" alt="{{ game['title'] }} cover">
+    {% else %}
+      <span class="placeholder">No cover art</span>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('game_cover', game_id=game['id']) }}" class="cover-upload-form">
+      <label class="visually-hidden" for="cover-input">Choose a cover image</label>
+      <input type="file" id="cover-input" name="cover" accept="image/png,image/jpeg,image/gif,image/webp" class="cover-auto-submit">
+      <noscript><button type="submit" class="small secondary">Upload cover</button></noscript>
+    </form>
+    {% if game['cover_image_path'] %}
+    <form method="post" action="{{ url_for('game_cover_clear', game_id=game['id']) }}" class="cover-clear-form">
+      <button type="submit" class="small secondary">Clear cover</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div>
+    <h1>{{ game['title'] }}{% if game['edition_note'] %} <span class="muted">— {{ game['edition_note'] }}</span>{% endif %}</h1>
+
+    <p class="status-line">
+      {% if status.owned %}
+        <span class="own-tag owned">Owned</span>
+      {% elif status.playable %}
+        <span class="own-tag playable">Playable</span> <span class="muted">not owned — link or subscription access only</span>
+      {% else %}
+        <span class="own-tag none">Not playable yet</span> <span class="muted">add a copy below</span>
+      {% endif %}
+      {% if game['length_hours'] is not none %}<span class="muted">· Length {{ game['length_hours']|hours }}</span>{% endif %}
+    </p>
+
+    <div class="tag-row">
+      {% for t in game_tags %}
+        <span class="pill">{{ t['name'] }}<form method="post" action="{{ url_for('tag_remove', game_id=game['id'], tag_id=t['id']) }}"><button type="submit" class="remove-x" title="Remove tag" aria-label="Remove tag {{ t['name'] }}">×</button></form></span>
+      {% endfor %}
+      <form method="post" action="{{ url_for('tag_add', game_id=game['id']) }}" class="tag-add-form">
+        <input type="text" name="name" list="tag-list" placeholder="Add tag — JRPG, Rom hack…" aria-label="Add tag">
+        <button type="submit" class="small secondary">Add</button>
+      </form>
+    </div>
+
+    {% if related %}
+      <p class="muted related-line">Related:
+        {% for r in related %}<a href="{{ url_for('game_detail', game_id=r['id']) }}">{{ r['title'] }}{% if r['edition_note'] %} — {{ r['edition_note'] }}{% endif %}</a>{{ ' · ' if not loop.last }}{% endfor %}
+      </p>
+    {% endif %}
+
+    <div class="actions-row">
+      {% if backlog_entry %}
+        <form method="post" action="{{ url_for('backlog_remove', game_id=game['id']) }}" class="inline-form">
+          <button type="submit" class="secondary">Remove from backlog</button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('backlog_add', game_id=game['id']) }}" class="inline-form">
+          <button type="submit" class="secondary">Add to backlog</button>
+        </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('game_delete', game_id=game['id']) }}"
+            class="inline-form confirm-delete" data-confirm="Delete &quot;{{ game['title'] }}&quot; and all its releases, copies, and history? This cannot be undone.">
+        <button type="submit" class="danger">Delete game</button>
+      </form>
+    </div>
+
+    <details class="action-panel">
+      <summary class="btn secondary">Mark as beaten</summary>
+      <form method="post" action="{{ url_for('complete_add', game_id=game['id']) }}" class="card panel-form">
+        <div class="field-row">
+          <div class="field-group">
+            <label for="completed_at">Date completed</label>
+            <input type="date" id="completed_at" name="completed_at" value="{{ today }}">
+          </div>
+          <div class="field-group">
+            <label for="hours_played">Hours played</label>
+            <input type="number" id="hours_played" name="hours_played" step="0.1" min="0">
+          </div>
+          <div class="field-group">
+            <label for="rating">Rating (1–10)</label>
+            <input type="number" id="rating" name="rating" min="1" max="10">
+          </div>
+        </div>
+        {{ played_via_select('new-comp', game_copies[0]['id'] if game_copies|length == 1 else None) }}
+        <div class="field-group">
+          <label for="c-notes">Notes</label>
+          <textarea id="c-notes" name="notes"></textarea>
+        </div>
+        <button type="submit">Save</button>
+      </form>
+    </details>
+
+    <details class="action-panel">
+      <summary class="btn secondary">Edit game</summary>
+      <form method="post" action="{{ url_for('game_edit', game_id=game['id']) }}" class="card panel-form">
+        <div class="field-group">
+          <label for="e-title">Title</label>
+          <input type="text" id="e-title" name="title" required value="{{ game['title'] }}">
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label for="e-edition">Edition note</label>
+            <input type="text" id="e-edition" name="edition_note" value="{{ game['edition_note'] or '' }}">
+          </div>
+          <div class="field-group">
+            <label for="e-length">Length (hours)</label>
+            <input type="number" id="e-length" name="length_hours" step="0.5" min="0" value="{{ '%g'|format(game['length_hours']) if game['length_hours'] is not none else '' }}">
+          </div>
+        </div>
+        {% if all_games %}
+        <div class="field-group">
+          <label for="e-related">Related game</label>
+          <select id="e-related" name="related_game_id">
+            <option value="">— none —</option>
+            {% for g in all_games %}
+              <option value="{{ g['id'] }}" {{ 'selected' if game['related_game_id'] == g['id'] }}>{{ g['title'] }}{% if g['edition_note'] %} — {{ g['edition_note'] }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <button type="submit">Save</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+<hr class="rule">
+
+<div class="section-title"><h2>Releases &amp; copies</h2></div>
+
+{% for rd in releases_data %}
+  {% set release = rd.release %}
+  <div class="card release-card">
+    <div class="section-title">
+      <h3>{{ release['platform_name'] }}{% if release['region'] %} <span class="muted">— {{ release['region'] }}</span>{% endif %}</h3>
+      {% if releases_data|length > 1 %}
+      <form method="post" action="{{ url_for('release_delete', release_id=release['id']) }}"
+            class="inline-form confirm-delete" data-confirm="Delete this release and its copies?">
+        <button type="submit" class="secondary small">Delete release</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if release['release_year'] or release['publisher'] or release['developer'] or release['serial'] or release['notes'] %}
+    <dl class="fields">
+      {% if release['release_year'] %}<dt>Year</dt><dd>{{ release['release_year'] }}</dd>{% endif %}
+      {% if release['publisher'] %}<dt>Publisher</dt><dd>{{ release['publisher'] }}</dd>{% endif %}
+      {% if release['developer'] %}<dt>Developer</dt><dd>{{ release['developer'] }}</dd>{% endif %}
+      {% if release['serial'] %}<dt>Serial</dt><dd class="mono">{{ release['serial'] }}</dd>{% endif %}
+      {% if release['notes'] %}<dt>Notes</dt><dd class="prewrap">{{ release['notes'] }}</dd>{% endif %}
+    </dl>
+    {% endif %}
+
+    <details class="quiet-panel">
+      <summary>Edit release details</summary>
+      <form method="post" action="{{ url_for('release_edit', release_id=release['id']) }}" class="panel-form">
+        <div class="field-row">
+          <div class="field-group"><label for="r{{ release['id'] }}-platform">Platform</label><input type="text" id="r{{ release['id'] }}-platform" name="platform" list="platform-list" value="{{ release['platform_name'] }}"></div>
+          <div class="field-group"><label for="r{{ release['id'] }}-region">Region</label><input type="text" id="r{{ release['id'] }}-region" name="region" value="{{ release['region'] or '' }}"></div>
+          <div class="field-group"><label for="r{{ release['id'] }}-year">Year</label><input type="number" id="r{{ release['id'] }}-year" name="release_year" value="{{ release['release_year'] or '' }}"></div>
+        </div>
+        <div class="field-row">
+          <div class="field-group"><label for="r{{ release['id'] }}-pub">Publisher</label><input type="text" id="r{{ release['id'] }}-pub" name="publisher" value="{{ release['publisher'] or '' }}"></div>
+          <div class="field-group"><label for="r{{ release['id'] }}-dev">Developer</label><input type="text" id="r{{ release['id'] }}-dev" name="developer" value="{{ release['developer'] or '' }}"></div>
+          <div class="field-group"><label for="r{{ release['id'] }}-serial">Serial</label><input type="text" id="r{{ release['id'] }}-serial" name="serial" value="{{ release['serial'] or '' }}"></div>
+        </div>
+        <div class="field-group"><label for="r{{ release['id'] }}-notes">Notes</label><textarea id="r{{ release['id'] }}-notes" name="notes">{{ release['notes'] or '' }}</textarea></div>
+        <button type="submit" class="small">Save release</button>
+      </form>
+    </details>
+
+    <h4 class="copies-heading">Copies</h4>
+    {% if rd.copies %}
+      <div class="copy-list">
+        {% for c in rd.copies %}
+          <div class="copy" id="copy-{{ c['id'] }}">
+            <div class="copy-head">
+              <span class="own-tag {{ 'owned' if c['is_owned'] else 'playable' }}">{{ 'Owned' if c['is_owned'] else 'Playable' }}</span>
+              <span class="copy-what">{{ c['format'] or 'Copy' }}</span>
+              {% if c['via_platform_name'] %}<span class="copy-where">via {{ c['via_platform_name'] }}</span>{% endif %}
+              {% if c['location'] %}<span class="copy-where">· {{ c['location'] }}</span>
+              {% elif c['path'] %}<span class="copy-where">· Local archive</span>{% endif %}
+            </div>
+
+            {% if c['url'] %}
+              <div class="copy-line">
+                <a class="btn small" href="{{ c['url'] }}" target="_blank" rel="noopener noreferrer">Open ↗</a>
+                <span class="mono muted copy-url">{{ c['url'] }}</span>
+              </div>
+            {% endif %}
+
+            {% if c['path'] %}
+              <div class="copy-line">
+                <span class="mono copy-path">{{ c['path'] }}</span>
+              </div>
+              <div class="copy-line copy-file-meta">
+                <button type="button" class="small secondary copy-path-btn" data-path="{{ c['path'] }}">Copy path</button>
+                <a class="btn small secondary" href="{{ url_for('copy_download', copy_id=c['id']) }}">Download</a>
+                <span class="status-tag {{ c['verify_status'] or 'unchecked' }}">{{ c['verify_status'] or 'unchecked' }}</span>
+                {% if c['sha256'] %}<span class="mono muted">sha256 {{ c['sha256'][:16] }}…</span>{% endif %}
+                {% if c['size'] %}<span class="muted">{{ c['size']|filesize }}</span>{% endif %}
+                <form method="post" action="{{ url_for('copy_verify', copy_id=c['id']) }}" class="inline-form">
+                  <button type="submit" class="small secondary">Verify</button>
+                </form>
+                {% if not c['sha256'] %}
+                <form method="post" action="{{ url_for('copy_compute_hash', copy_id=c['id']) }}" class="inline-form">
+                  <button type="submit" class="small secondary">Compute hash</button>
+                </form>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {% if c['notes'] %}<div class="copy-notes prewrap">{{ c['notes'] }}</div>{% endif %}
+
+            <details class="quiet-panel copy-edit">
+              <summary>Edit copy</summary>
+              <form method="post" action="{{ url_for('copy_edit', copy_id=c['id']) }}" class="panel-form">
+                {{ copy_fields('c' ~ c['id'], c) }}
+                <div class="form-actions">
+                  <button type="submit" class="small">Save copy</button>
+                </div>
+              </form>
+              <form method="post" action="{{ url_for('copy_delete', copy_id=c['id']) }}" class="inline-form confirm-delete" data-confirm="Remove this copy record?">
+                <button type="submit" class="small danger">Remove copy</button>
+              </form>
+            </details>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No copies of this release recorded yet.</p>
+    {% endif %}
+
+    <details class="action-panel add-copy-panel"{{ ' open' if (not status.playable and loop.first) }}>
+      <summary class="btn">Add a copy</summary>
+      <form method="post" action="{{ url_for('copy_new', release_id=release['id']) }}" class="card panel-form">
+        {{ copy_fields('new' ~ release['id']) }}
+        <label class="check">
+          <input type="checkbox" name="compute_hash_now" value="1"> Compute hash now, if a path was given
+        </label>
+        <button type="submit" class="small">Add copy</button>
+      </form>
+    </details>
+  </div>
+{% endfor %}
+
+<details class="quiet-panel">
+  <summary>Add another release (different region, platform, or re-release)</summary>
+  <form method="post" action="{{ url_for('release_new', game_id=game['id']) }}" class="card panel-form">
+    <div class="field-row">
+      <div class="field-group"><label for="nr-platform">Platform *</label><input type="text" id="nr-platform" name="platform" list="platform-list" required></div>
+      <div class="field-group"><label for="nr-region">Region</label><input type="text" id="nr-region" name="region"></div>
+      <div class="field-group"><label for="nr-year">Year</label><input type="number" id="nr-year" name="release_year"></div>
+    </div>
+    <div class="field-row">
+      <div class="field-group"><label for="nr-pub">Publisher</label><input type="text" id="nr-pub" name="publisher"></div>
+      <div class="field-group"><label for="nr-dev">Developer</label><input type="text" id="nr-dev" name="developer"></div>
+      <div class="field-group"><label for="nr-serial">Serial</label><input type="text" id="nr-serial" name="serial"></div>
+    </div>
+    <div class="field-group"><label for="nr-notes">Notes</label><textarea id="nr-notes" name="notes"></textarea></div>
+    <button type="submit" class="small">Add release</button>
+  </form>
+</details>
+
+<hr class="rule">
+
+<div class="section-title"><h2>Completion history</h2></div>
+{% if completions %}
+  <div class="completion-list">
+    {% for comp in completions %}
+      <div class="completion">
+        <div class="completion-head">
+          <strong>{{ comp['completed_at'] }}</strong>
+          {% if comp['hours_played'] is not none %}<span>· {{ comp['hours_played']|hours }}</span>{% endif %}
+          {% if comp['rating'] %}<span>· {{ comp['rating'] }}/10</span>{% endif %}
+          {% if comp['via_label'] %}<span class="muted">· via {{ comp['via_label'] }}</span>{% endif %}
+        </div>
+        {% if comp['notes'] %}<div class="copy-notes prewrap">{{ comp['notes'] }}</div>{% endif %}
+        <details class="quiet-panel">
+          <summary>Edit</summary>
+          <form method="post" action="{{ url_for('complete_edit', completion_id=comp['id']) }}" class="panel-form">
+            <div class="field-row">
+              <div class="field-group"><label for="cp{{ comp['id'] }}-date">Date</label><input type="date" id="cp{{ comp['id'] }}-date" name="completed_at" value="{{ comp['completed_at'] }}"></div>
+              <div class="field-group"><label for="cp{{ comp['id'] }}-hours">Hours</label><input type="number" id="cp{{ comp['id'] }}-hours" name="hours_played" step="0.1" min="0" value="{{ '%g'|format(comp['hours_played']) if comp['hours_played'] is not none else '' }}"></div>
+              <div class="field-group"><label for="cp{{ comp['id'] }}-rating">Rating</label><input type="number" id="cp{{ comp['id'] }}-rating" name="rating" min="1" max="10" value="{{ comp['rating'] or '' }}"></div>
+            </div>
+            {{ played_via_select('cp' ~ comp['id'], comp['copy_id']) }}
+            <div class="field-group"><label for="cp{{ comp['id'] }}-notes">Notes</label><textarea id="cp{{ comp['id'] }}-notes" name="notes">{{ comp['notes'] or '' }}</textarea></div>
+            <button type="submit" class="small">Save</button>
+          </form>
+          <form method="post" action="{{ url_for('complete_delete', completion_id=comp['id']) }}" class="inline-form confirm-delete" data-confirm="Remove this completion entry?">
+            <button type="submit" class="small danger">Remove entry</button>
+          </form>
+        </details>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">Not marked as beaten yet.</p>
+{% endif %}
+
+{% endblock %}

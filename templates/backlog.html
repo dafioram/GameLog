@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Backlog — Retro Archive{% endblock %}
+{% block content %}
+
+<div class="section-title"><h2>Backlog {% if entries %}<span class="muted">({{ entries|length }})</span>{% endif %}</h2></div>
+
+{% if can_reorder %}
+  <p class="muted">Ranked top to bottom — drag a row to reorder, or use the arrows. The dashed line marks your current top 10.</p>
+{% elif not is_rank_sort %}
+  <p class="muted">Sorted by length — games with no length set are listed last. Numbers show each game's real rank. Switch back to Rank with no filters to reorder.</p>
+{% else %}
+  <p class="muted">Filtered view — numbers show each game's real rank in your full backlog. Clear the filters to reorder.</p>
+{% endif %}
+
+<form class="filter-bar" method="get" action="{{ url_for('backlog_list') }}">
+  <div class="field">
+    <label for="bf-platform">Platform</label>
+    <select id="bf-platform" name="platform_id">
+      <option value="">All platforms</option>
+      {% for p in platforms %}
+        <option value="{{ p['id'] }}" {{ 'selected' if filters.platform_id == p['id'] }}>{{ p['name'] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="bf-location">Location</label>
+    <select id="bf-location" name="location">
+      <option value="">Any location</option>
+      {% for l in locations %}
+        <option value="{{ l }}" {{ 'selected' if filters.location and filters.location|lower == l|lower }}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="bf-tag">Tag</label>
+    <select id="bf-tag" name="tag_id">
+      <option value="">Any tag</option>
+      {% for t in tags %}
+        <option value="{{ t['id'] }}" {{ 'selected' if filters.tag_id == t['id'] }}>{{ t['name'] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="bf-sort">Sort</label>
+    <select id="bf-sort" name="sort">
+      <option value="rank" {{ 'selected' if is_rank_sort }}>Rank (manual order)</option>
+      <option value="length_asc" {{ 'selected' if filters.sort == 'length_asc' }}>Length: shortest first</option>
+      <option value="length_desc" {{ 'selected' if filters.sort == 'length_desc' }}>Length: longest first</option>
+    </select>
+  </div>
+  <div class="field"><button type="submit">Apply</button></div>
+  {% if is_filtered or not is_rank_sort %}
+    <div class="field"><a href="{{ url_for('backlog_list') }}">Clear filters</a></div>
+  {% endif %}
+</form>
+
+{% if entries %}
+  <p class="muted backlog-total">
+    {{ total_hours|hours if total_hours else '0h' }} of estimated play time listed{% if unknown_length %}, plus {{ unknown_length }} game{{ '' if unknown_length == 1 else 's' }} with no length set{% endif %}.
+  </p>
+  <ul id="backlog-list" class="backlog-list{{ ' reorderable' if can_reorder }}">
+    {% for e in entries %}
+      {% if can_reorder and loop.index == 11 %}
+        <li class="backlog-divider" aria-hidden="true"><span>Top 10 ends here</span></li>
+      {% endif %}
+      <li {{ 'draggable=true' if can_reorder }} data-backlog-id="{{ e['backlog_id'] }}"
+          class="backlog-row{{ ' top-ten' if e['rank'] <= 10 }}">
+        <span class="rank">{{ e['rank'] }}.</span>
+        <span class="backlog-title">
+          <a href="{{ url_for('game_detail', game_id=e['game_id']) }}">{{ e['title'] }}</a>
+          {% if e['edition_note'] %}<span class="muted"> — {{ e['edition_note'] }}</span>{% endif %}
+        </span>
+        <span class="length-col muted">{{ e['length_hours']|hours }}</span>
+        <span class="move-buttons">
+          {% if can_reorder %}
+          <form method="post" action="{{ url_for('backlog_move', backlog_id=e['backlog_id']) }}" class="inline-form">
+            <input type="hidden" name="direction" value="up">
+            <button type="submit" class="secondary" {{ 'disabled' if loop.first }} aria-label="Move up">↑</button>
+          </form>
+          <form method="post" action="{{ url_for('backlog_move', backlog_id=e['backlog_id']) }}" class="inline-form">
+            <input type="hidden" name="direction" value="down">
+            <button type="submit" class="secondary" {{ 'disabled' if loop.last }} aria-label="Move down">↓</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('backlog_remove', game_id=e['game_id']) }}" class="inline-form">
+            <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+            <button type="submit" class="secondary">Remove</button>
+          </form>
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="empty-state">{% if is_filtered %}Nothing in the backlog matches these filters.{% else %}Nothing in the backlog yet. Add games from their detail page.{% endif %}</div>
+{% endif %}
+
+{% endblock %}

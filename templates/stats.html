@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Stats — Retro Archive{% endblock %}
+{% block content %}
+
+<h2>Stats</h2>
+
+<div class="stat-row">
+  <div class="stat"><span class="n">{{ stats.totals['games_beaten'] or 0 }}</span><span class="label">games beaten</span></div>
+  <div class="stat"><span class="n">{{ '%.0f'|format(stats.totals['total_hours'] or 0) }}</span><span class="label">hours logged</span></div>
+  <div class="stat"><span class="n">{{ '%.1f'|format(stats.totals['avg_rating']) if stats.totals['avg_rating'] else '—' }}</span><span class="label">average rating</span></div>
+</div>
+
+<div class="card">
+  <h3>Beaten by year</h3>
+  {% if stats.by_year %}
+    <div class="year-bars">
+      {% for row in stats.by_year %}
+        <div class="year-bar-row">
+          <div>{{ row['year'] }}</div>
+          <div class="year-bar-track">
+            <div class="year-bar-fill" style="width: {{ ((row['total_hours'] or 0) / max_hours * 100) if max_hours else 0 }}%;"></div>
+          </div>
+          <div class="hours">{{ '%.0f'|format(row['total_hours'] or 0) }}h, {{ row['games_beaten'] }} beaten</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">No completions logged yet. Mark a game as beaten from its detail page to start tracking.</p>
+  {% endif %}
+</div>
+
+{% if stats.top_rated %}
+<div class="card">
+  <h3>Top rated</h3>
+  <div class="ledger">
+    {% for r in stats.top_rated %}
+      <div class="ledger-row">
+        <a href="{{ url_for('game_detail', game_id=r['game_id']) }}" class="label">{{ r['title'] }}{% if r['edition_note'] %} — {{ r['edition_note'] }}{% endif %}</a>
+        <span class="value">{{ r['rating'] }}/10</span>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
