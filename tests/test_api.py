@@ -815,3 +815,21 @@ def test_home_shows_save_vault_summary(client):
     assert "no saves kept yet" in page(client, "/")
     _upload_save(client, 1)
     assert "1 save kept" in page(client, "/")
+
+
+# ====================================================== startup diagnostics
+
+def test_unwritable_data_folder_gives_an_actionable_error(tmp_path, monkeypatch):
+    """Regression for the Docker crash: a root-owned ./data used to surface as
+    SQLite's bare 'unable to open database file'."""
+    import db as db_module
+    from app import create_app
+    data = tmp_path / "data"
+    data.mkdir()
+    real_access = os.access
+    monkeypatch.setattr(db_module.os, "access",
+                        lambda p, mode: False if str(p) == str(data) else real_access(p, mode))
+    with pytest.raises(db_module.DataDirNotWritableError) as exc:
+        create_app(data_dir=data)
+    msg = str(exc.value)
+    assert str(data) in msg and "PUID/PGID" in msg and "chown" in msg

@@ -19,7 +19,6 @@ There are two ways to run it. Both read settings from a `.env` file
 ```bash
 cd retro-archive
 cp .env.example .env        # then edit: port, time zone, your game folder, PUID/PGID
-mkdir -p data               # create it as *you*; if Docker creates it, it's root-owned
 docker compose up -d --build
 ```
 
@@ -29,16 +28,17 @@ is published on all of the host's network interfaces (`RETRO_BIND_ADDRESS=0.0.0.
 Set it to `127.0.0.1` to keep the app private to the machine running it.
 
 - **Data:** `./data` on the host is mounted at `/data`. It holds the
-  database and cover art. Back up this folder. If you get a "permission
-  denied" error at startup, `./data` was created by Docker as root:
-  `sudo chown -R $(id -u):$(id -g) data`.
+  database, cover art and save vault. Back up this folder.
 - **Game files:** `RETRO_LIBRARY_DIR` (default `./library`) is mounted
   **read-only** at `/library`. The app sees container paths, so a copy's
   file path must be entered as `/library/SNES/Chrono Trigger (USA).sfc`,
   not the host path. You can point `RETRO_LIBRARY_DIR` at a NAS mount.
-- **File ownership:** the container runs as `PUID:PGID` (default 1000:1000)
-  so files it writes to `./data` belong to you. Set these to the output of
-  `id -u` and `id -g`.
+- **File ownership:** the app runs as `PUID:PGID` (default 1000:1000), so
+  files it writes to `./data` belong to you. Set these to the output of
+  `id -u` and `id -g`. The container starts as root only long enough to
+  hand `./data` to that user. That step is needed because Docker creates a
+  missing `./data` owned by root. It then drops to `PUID:PGID` before the
+  app starts.
 - **Server:** gunicorn, one process with four threads, since SQLite has a
   single writer. A health check calls `/healthz`.
 
@@ -48,8 +48,26 @@ Common commands:
 docker compose logs -f                                   # watch logs
 docker compose down                                      # stop
 docker compose up -d --build                             # rebuild after updating the code
-docker compose exec retro-archive flask --app wsgi prune-covers --dry-run
+docker compose exec -u "$(id -u):$(id -g)" retro-archive flask --app wsgi prune-covers --dry-run
 ```
+
+(`exec` doesn't go through the entrypoint, so pass `-u` to run maintenance
+commands as your user rather than root.)
+
+#### Troubleshooting
+
+- **Container keeps restarting, and the log says "can't write to /data"
+  (older versions said "unable to open database file"):** the data folder
+  isn't writable by `PUID:PGID`. Set PUID/PGID in `.env` to `id -u` /
+  `id -g`, run `sudo chown -R $(id -u):$(id -g) data`, then run
+  `docker compose up -d`. If `./data` is on an NFS share with root_squash,
+  the container can't change its ownership, so fix ownership on the NAS.
+- **Fedora, RHEL or other SELinux systems:** bind mounts are blocked unless
+  relabelled. Add `:z` to the data volume in `docker-compose.yml`
+  (`"${RETRO_DATA_PATH:-./data}:/data:z"`).
+- **Game files show as "missing":** inside the container the files are at
+  `/library/...`, not at their path on the host. Check `RETRO_LIBRARY_DIR`
+  and the path you entered on the copy.
 
 ### Option B: Native Python
 
@@ -91,7 +109,7 @@ variables always take precedence over `.env`.
 | `RETRO_BIND_ADDRESS` | Docker | `0.0.0.0` | Host interface the port is published on |
 | `RETRO_DATA_PATH` | Docker | `./data` | Host folder mounted at `/data` |
 | `RETRO_LIBRARY_DIR` | Docker | `./library` | Host folder mounted read-only at `/library` |
-| `PUID` / `PGID` | Docker | `1000` | User the container runs as |
+| `PUID` / `PGID` | Docker | `1000` | User the app runs as inside the container |
 | `TZ` | Docker | `UTC` | Time zone, so "date completed" defaults to your local date |
 
 ## How the data is organized
@@ -200,6 +218,7 @@ storage.py           Hash-named, streamed storage for uploaded save files
 schema.sql           Current schema (version 2)
 seed_platforms.py    Default platform list
 gunicorn.conf.py     Server settings (used by Docker)
+docker-entrypoint.sh Fixes ./data ownership, then runs the app as PUID:PGID
 Dockerfile           Container image
 docker-compose.yml   Docker Compose setup (ports and volumes come from .env)
 .env.example         Documented settings template

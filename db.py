@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -52,6 +53,48 @@ class IncompatibleDatabaseError(RuntimeError):
     pass
 
 
+class DataDirNotWritableError(RuntimeError):
+    pass
+
+
+def _whoami():
+    uid = getattr(os, "getuid", lambda: None)()
+    gid = getattr(os, "getgid", lambda: None)()
+    return f"uid {uid}, gid {gid}" if uid is not None else "the current user"
+
+
+def check_writable(db_path):
+    """Fail at startup with an actionable message, instead of SQLite's bare
+    "unable to open database file", when the data folder or database file
+    can't be written by the user the app runs as."""
+    db_path = Path(db_path)
+    folder = db_path.parent
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        pass  # reported below
+    problem = None
+    if not folder.is_dir() or not os.access(folder, os.W_OK | os.X_OK):
+        problem = folder
+    elif db_path.exists() and not os.access(db_path, os.R_OK | os.W_OK):
+        problem = db_path
+    if problem is None:
+        return
+    try:
+        st = problem.stat()
+        owner = f"it is owned by uid {st.st_uid}, gid {st.st_gid}"
+    except OSError:
+        owner = "it doesn't exist and couldn't be created"
+    raise DataDirNotWritableError(
+        f"Retro Archive can't write to {problem}: the app runs as {_whoami()}, "
+        f"but {owner}.\n"
+        "  Docker: set PUID/PGID in .env to the output of `id -u` / `id -g` and run\n"
+        "          `sudo chown -R $(id -u):$(id -g) data` in the project folder.\n"
+        "  Native: make the data folder (RETRO_DATA_DIR, default ./data) writable by\n"
+        "          the user running the app."
+    )
+
+
 def connect(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,6 +137,7 @@ def init_db():
     """Create a fresh database, or upgrade an existing one through
     MIGRATIONS. Refuses to touch a database from the pre-versioning
     prototype (user_version 0 with tables already present)."""
+    check_writable(current_app.config["DATABASE"])
     db = get_db()
     version = db.execute("PRAGMA user_version").fetchone()[0]
     has_tables = db.execute(
