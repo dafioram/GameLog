@@ -833,3 +833,10 @@ def test_unwritable_data_folder_gives_an_actionable_error(tmp_path, monkeypatch)
         create_app(data_dir=data)
     msg = str(exc.value)
     assert str(data) in msg and "PUID/PGID" in msg and "chown" in msg
+
+
+def test_cover_picker_shows_size_hint(client):
+    game_id = create_game(client)
+    body = page(client, f"/games/{game_id}")
+    assert 'id="cover-hint"' in body and "3:4 portrait, 480 × 640+" in body
+    assert 'aria-describedby="cover-hint"' in body   # read out with the file picker

@@ -82,9 +82,10 @@
     {% endif %}
     <form method="post" enctype="multipart/form-data" action="{{ url_for('game_cover', game_id=game['id']) }}" class="cover-upload-form">
       <label class="visually-hidden" for="cover-input">Choose a cover image</label>
-      <input type="file" id="cover-input" name="cover" accept="image/png,image/jpeg,image/gif,image/webp" class="cover-auto-submit">
+      <input type="file" id="cover-input" name="cover" accept="image/png,image/jpeg,image/gif,image/webp" class="cover-auto-submit" aria-describedby="cover-hint">
       <noscript><button type="submit" class="small secondary">Upload cover</button></noscript>
     </form>
+    <p class="cover-hint" id="cover-hint">Best: 3:4 portrait, 480 × 640+</p>
     {% if game['cover_image_path'] %}
     <form method="post" action="{{ url_for('game_cover_clear', game_id=game['id']) }}" class="cover-clear-form">
       <button type="submit" class="small secondary">Clear cover</button>
