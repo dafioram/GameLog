@@ -7,6 +7,7 @@ atomically or not at all.
 """
 
 from db import get_db
+from vocab import FOLDED_KINDS
 
 # Reusable "does this game have ..." predicates (expect the game aliased g).
 OWNED_SQL = """EXISTS (SELECT 1 FROM copies c JOIN releases r ON r.id = c.release_id
@@ -28,6 +29,15 @@ HAS_LOCATION_SQL = """EXISTS (SELECT 1 FROM copies c JOIN releases r ON r.id = c
 HAS_FORMAT_SQL = """EXISTS (SELECT 1 FROM copies c JOIN releases r ON r.id = c.release_id
                             WHERE r.game_id = g.id AND c.format = ?)"""
 HAS_TAG_SQL = "EXISTS (SELECT 1 FROM game_tags gt WHERE gt.game_id = g.id AND gt.tag_id = ?)"
+
+# A ROM hack / mod / fan game that points at another game: folded under
+# its original in the default games list.
+_FOLDED_IN = "(" + ", ".join(f"'{k}'" for k in FOLDED_KINDS) + ")"
+IS_FOLDED_CHILD_SQL = f"(g.related_game_id IS NOT NULL AND g.relation_kind IN {_FOLDED_IN})"
+
+# The system a playthrough happened on: what was recorded, else the copy's
+# "accessed through" system, else the copy's own release platform.
+PLAYED_ON_NAME_SQL = "COALESCE(pp.name, vp.name, rp.name)"
 
 
 # ---------------------------------------------------------------- platforms
@@ -131,20 +141,62 @@ def get_distinct_formats():
 
 # -------------------------------------------------------------------- games
 
-def create_game(title, edition_note=None, related_game_id=None, length_hours=None):
+def create_game(title, edition_note=None, related_game_id=None, length_hours=None,
+                relation_kind=None):
+    related_game_id = related_game_id or None
     return get_db().execute(
-        """INSERT INTO games (title, edition_note, related_game_id, length_hours)
-           VALUES (?, ?, ?, ?)""",
-        (title, edition_note or None, related_game_id or None, length_hours),
+        """INSERT INTO games (title, edition_note, related_game_id, relation_kind, length_hours)
+           VALUES (?, ?, ?, ?, ?)""",
+        (title, edition_note or None, related_game_id,
+         (relation_kind or "related") if related_game_id else None, length_hours),
     ).lastrowid
 
 
-def update_game(game_id, title, edition_note=None, related_game_id=None, length_hours=None):
+def update_game(game_id, title, edition_note=None, related_game_id=None, length_hours=None,
+                relation_kind=None):
+    related_game_id = related_game_id or None
     get_db().execute(
-        """UPDATE games SET title = ?, edition_note = ?, related_game_id = ?, length_hours = ?
+        """UPDATE games SET title = ?, edition_note = ?, related_game_id = ?, relation_kind = ?,
+                  length_hours = ?
            WHERE id = ?""",
-        (title, edition_note or None, related_game_id or None, length_hours, game_id),
+        (title, edition_note or None, related_game_id,
+         (relation_kind or "related") if related_game_id else None, length_hours, game_id),
     )
+
+
+def link_chain_reaches(start_id, target_id, limit=100):
+    """True if following related_game_id links from start_id ever reaches
+    target_id. Used to refuse links that would form a loop (A -> B -> A)."""
+    db = get_db()
+    current, seen = start_id, set()
+    while current and current not in seen and len(seen) < limit:
+        if current == target_id:
+            return True
+        seen.add(current)
+        row = db.execute("SELECT related_game_id FROM games WHERE id = ?", (current,)).fetchone()
+        current = row["related_game_id"] if row else None
+    return False
+
+
+def _fold_roots():
+    """{game_id: id of the game it folds under} for every folded game.
+    A hack of a hack folds under the original at the top of the chain."""
+    rows = get_db().execute("SELECT id, related_game_id, relation_kind FROM games").fetchall()
+    parent = {r["id"]: (r["related_game_id"], r["relation_kind"]) for r in rows}
+    roots = {}
+    for gid, (pid, kind) in parent.items():
+        if not pid or kind not in FOLDED_KINDS:
+            continue
+        root, seen = pid, {gid}
+        while root in parent and root not in seen:
+            seen.add(root)
+            nxt, nkind = parent[root]
+            if not nxt or nkind not in FOLDED_KINDS:
+                break
+            root = nxt
+        if root in parent and root != gid:
+            roots[gid] = root
+    return roots
 
 
 def set_game_cover(game_id, filename):
@@ -175,18 +227,26 @@ def list_all_games(exclude_game_id=None):
     ).fetchall()
 
 
-def get_related_games(game_id):
-    """Both directions: the game this one points at (e.g. the original a
-    remake was linked to) AND every game that points at this one."""
-    return get_db().execute(
-        """SELECT g.id, g.title, g.edition_note FROM games g
-           WHERE g.id = (SELECT related_game_id FROM games WHERE id = ?)
-           UNION
-           SELECT g.id, g.title, g.edition_note FROM games g
-           WHERE g.related_game_id = ?
-           ORDER BY title, edition_note""",
-        (game_id, game_id),
+def get_game_links(game_id):
+    """{'parent': the game this one is a <kind> of (or None),
+        'children': games that point at this one, each with its kind and
+                    status (owned / playable / beaten / in backlog)}."""
+    db = get_db()
+    parent = db.execute(
+        """SELECT p.id, p.title, p.edition_note, g.relation_kind
+           FROM games g JOIN games p ON p.id = g.related_game_id
+           WHERE g.id = ?""",
+        (game_id,),
+    ).fetchone()
+    children = db.execute(
+        f"""SELECT g.id, g.title, g.edition_note, g.relation_kind,
+                   {OWNED_SQL} AS owned, {PLAYABLE_SQL} AS playable,
+                   {IN_BACKLOG_SQL} AS in_backlog, {COMPLETED_SQL} AS completed
+            FROM games g WHERE g.related_game_id = ?
+            ORDER BY g.title COLLATE NOCASE, g.edition_note""",
+        (game_id,),
     ).fetchall()
+    return {"parent": parent, "children": children}
 
 
 # ----------------------------------------------------------------- releases
@@ -337,7 +397,8 @@ def archive_health_summary():
 
 _SAVE_SELECT = """
     SELECT s.*, c.release_id, c.format AS copy_format, r.game_id,
-           comp.completed_at AS completion_date
+           comp.completed_at AS completion_date,
+           COALESCE(comp.method, s.method) AS effective_method
     FROM saves s
     JOIN copies c ON c.id = s.copy_id
     JOIN releases r ON r.id = c.release_id
@@ -346,18 +407,19 @@ _SAVE_SELECT = """
 
 
 def create_save(copy_id, label, filename, stored_name, sha256, size,
-                notes=None, completion_id=None):
+                notes=None, completion_id=None, method=None):
     return get_db().execute(
-        """INSERT INTO saves (copy_id, completion_id, label, notes, filename, stored_name, sha256, size)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (copy_id, completion_id or None, label, notes or None, filename, stored_name, sha256, size),
+        """INSERT INTO saves (copy_id, completion_id, label, notes, filename, stored_name, sha256, size, method)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (copy_id, completion_id or None, label, notes or None, filename, stored_name, sha256, size,
+         method or None),
     ).lastrowid
 
 
-def update_save(save_id, copy_id, label, notes=None, completion_id=None):
+def update_save(save_id, copy_id, label, notes=None, completion_id=None, method=None):
     get_db().execute(
-        "UPDATE saves SET copy_id = ?, label = ?, notes = ?, completion_id = ? WHERE id = ?",
-        (copy_id, label, notes or None, completion_id or None, save_id),
+        "UPDATE saves SET copy_id = ?, label = ?, notes = ?, completion_id = ?, method = ? WHERE id = ?",
+        (copy_id, label, notes or None, completion_id or None, method or None, save_id),
     )
 
 
@@ -458,8 +520,10 @@ def list_active_backlog(platform_id=None, location=None, tag_id=None, sort="rank
             FROM backlog b WHERE b.removed_at IS NULL
         )
         SELECT ranked.id AS backlog_id, ranked.rank, ranked.sort_order, ranked.added_at,
-               g.id AS game_id, g.title, g.edition_note, g.length_hours
+               g.id AS game_id, g.title, g.edition_note, g.length_hours,
+               g.relation_kind, p.id AS parent_id, p.title AS parent_title
         FROM ranked JOIN games g ON g.id = ranked.game_id
+        LEFT JOIN games p ON p.id = g.related_game_id
         WHERE 1 = 1
     """
     params = []
@@ -524,22 +588,28 @@ def reorder_backlog(ordered_backlog_ids):
 
 # --------------------------------------------------------------- completions
 
-def add_completion(game_id, completed_at, hours_played=None, rating=None, notes=None, copy_id=None):
+def add_completion(game_id, completed_at, hours_played=None, rating=None, notes=None, copy_id=None,
+                   played_on_platform_id=None, method=None):
     completion_id = get_db().execute(
-        """INSERT INTO completions (game_id, copy_id, completed_at, hours_played, rating, notes)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (game_id, copy_id or None, completed_at, hours_played, rating, notes or None),
+        """INSERT INTO completions (game_id, copy_id, played_on_platform_id, method,
+                                    completed_at, hours_played, rating, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (game_id, copy_id or None, played_on_platform_id or None, method or None,
+         completed_at, hours_played, rating, notes or None),
     ).lastrowid
     # Beating a game takes it off the active backlog (same transaction).
     remove_from_backlog(game_id, reason="completed")
     return completion_id
 
 
-def update_completion(completion_id, completed_at, hours_played=None, rating=None, notes=None, copy_id=None):
+def update_completion(completion_id, completed_at, hours_played=None, rating=None, notes=None, copy_id=None,
+                      played_on_platform_id=None, method=None):
     get_db().execute(
-        """UPDATE completions SET completed_at = ?, hours_played = ?, rating = ?, notes = ?, copy_id = ?
+        """UPDATE completions SET completed_at = ?, hours_played = ?, rating = ?, notes = ?, copy_id = ?,
+                  played_on_platform_id = ?, method = ?
            WHERE id = ?""",
-        (completed_at, hours_played, rating, notes or None, copy_id or None, completion_id),
+        (completed_at, hours_played, rating, notes or None, copy_id or None,
+         played_on_platform_id or None, method or None, completion_id),
     )
 
 
@@ -553,14 +623,17 @@ def get_completion(completion_id):
 
 def get_completions_for_game(game_id):
     return get_db().execute(
-        """SELECT comp.*, c.format AS copy_format, c.location AS copy_location,
+        f"""SELECT comp.*, c.format AS copy_format, c.location AS copy_location,
                   r.region AS copy_region, rp.name AS copy_platform_name,
-                  vp.name AS copy_via_platform_name
+                  vp.name AS copy_via_platform_name,
+                  pp.name AS played_on_recorded,
+                  {PLAYED_ON_NAME_SQL} AS played_on_name
            FROM completions comp
            LEFT JOIN copies c ON c.id = comp.copy_id
            LEFT JOIN releases r ON r.id = c.release_id
            LEFT JOIN platforms rp ON rp.id = r.platform_id
            LEFT JOIN platforms vp ON vp.id = c.via_platform_id
+           LEFT JOIN platforms pp ON pp.id = comp.played_on_platform_id
            WHERE comp.game_id = ?
            ORDER BY comp.completed_at DESC, comp.id DESC""",
         (game_id,),
@@ -582,13 +655,119 @@ def get_stats():
                   AVG(rating) AS avg_rating
            FROM completions"""
     ).fetchone()
+    # One entry per game: its best rating (latest if tied), plus how many
+    # times it's been beaten, so replays don't crowd the list.
     top_rated = db.execute(
-        """SELECT g.id AS game_id, g.title, g.edition_note, c.rating, c.completed_at
-           FROM completions c JOIN games g ON g.id = c.game_id
-           WHERE c.rating IS NOT NULL
-           ORDER BY c.rating DESC, c.completed_at DESC LIMIT 10"""
+        """WITH best AS (
+               SELECT c.*, ROW_NUMBER() OVER (PARTITION BY c.game_id
+                                              ORDER BY c.rating DESC, c.completed_at DESC, c.id DESC) AS rn,
+                      COUNT(*) OVER (PARTITION BY c.game_id) AS times
+               FROM completions c WHERE c.rating IS NOT NULL)
+           SELECT g.id AS game_id, g.title, g.edition_note, g.cover_image_path,
+                  best.rating, best.completed_at, best.times
+           FROM best JOIN games g ON g.id = best.game_id
+           WHERE best.rn = 1
+           ORDER BY best.rating DESC, best.completed_at DESC LIMIT 25"""
     ).fetchall()
-    return {"by_year": by_year, "totals": totals, "top_rated": top_rated}
+    by_method = db.execute(
+        """SELECT method, COUNT(*) AS n, SUM(COALESCE(hours_played, 0)) AS hours
+           FROM completions WHERE method IS NOT NULL
+           GROUP BY method ORDER BY n DESC, hours DESC"""
+    ).fetchall()
+    by_played_on = db.execute(
+        f"""SELECT {PLAYED_ON_NAME_SQL} AS platform, COUNT(*) AS n,
+                   SUM(COALESCE(comp.hours_played, 0)) AS hours
+            FROM completions comp
+            LEFT JOIN copies c ON c.id = comp.copy_id
+            LEFT JOIN releases r ON r.id = c.release_id
+            LEFT JOIN platforms rp ON rp.id = r.platform_id
+            LEFT JOIN platforms vp ON vp.id = c.via_platform_id
+            LEFT JOIN platforms pp ON pp.id = comp.played_on_platform_id
+            WHERE {PLAYED_ON_NAME_SQL} IS NOT NULL
+            GROUP BY platform ORDER BY n DESC, hours DESC"""
+    ).fetchall()
+    unrecorded_method = db.execute(
+        "SELECT COUNT(*) FROM completions WHERE method IS NULL").fetchone()[0]
+    return {"by_year": by_year, "totals": totals, "top_rated": top_rated,
+            "by_method": by_method, "by_played_on": by_played_on,
+            "unrecorded_method": unrecorded_method}
+
+
+# ------------------------------------------------------- yearly stats & journal
+
+_JOURNAL_SELECT = f"""
+    SELECT comp.id, comp.completed_at, comp.hours_played, comp.rating, comp.method,
+           {PLAYED_ON_NAME_SQL} AS played_on_name,
+           g.id AS game_id, g.title, g.edition_note, g.cover_image_path, g.relation_kind,
+           par.id AS parent_id, par.title AS parent_title
+    FROM completions comp
+    JOIN games g ON g.id = comp.game_id
+    LEFT JOIN games par ON par.id = g.related_game_id
+    LEFT JOIN copies c ON c.id = comp.copy_id
+    LEFT JOIN releases r ON r.id = c.release_id
+    LEFT JOIN platforms rp ON rp.id = r.platform_id
+    LEFT JOIN platforms vp ON vp.id = c.via_platform_id
+    LEFT JOIN platforms pp ON pp.id = comp.played_on_platform_id
+"""
+
+
+def get_completion_years():
+    rows = get_db().execute(
+        """SELECT DISTINCT CAST(strftime('%Y', completed_at) AS INTEGER) AS y
+           FROM completions WHERE strftime('%Y', completed_at) IS NOT NULL ORDER BY y DESC"""
+    ).fetchall()
+    return [r["y"] for r in rows]
+
+
+def get_year_journal(year):
+    """Every playthrough finished in `year`, newest first."""
+    return get_db().execute(
+        _JOURNAL_SELECT + """ WHERE strftime('%Y', comp.completed_at) = ?
+                              ORDER BY comp.completed_at DESC, comp.id DESC""",
+        (f"{int(year):04d}",),
+    ).fetchall()
+
+
+def get_recent_completions(limit=8):
+    return get_db().execute(
+        _JOURNAL_SELECT + " ORDER BY comp.completed_at DESC, comp.id DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
+def summarize_journal(rows):
+    """Year numbers computed from that year's journal rows."""
+    rated = [r["rating"] for r in rows if r["rating"] is not None]
+    by_method, by_played_on = {}, {}
+    for r in rows:
+        hours = r["hours_played"] or 0
+        if r["method"]:
+            m = by_method.setdefault(r["method"], {"method": r["method"], "n": 0, "hours": 0})
+            m["n"] += 1
+            m["hours"] += hours
+        if r["played_on_name"]:
+            p = by_played_on.setdefault(r["played_on_name"], {"platform": r["played_on_name"], "n": 0, "hours": 0})
+            p["n"] += 1
+            p["hours"] += hours
+    order = lambda d: sorted(d.values(), key=lambda x: (-x["n"], -x["hours"]))
+    # Highest rating first; ties -> most recent first (two stable sorts).
+    best = sorted((r for r in rows if r["rating"] is not None),
+                  key=lambda r: r["completed_at"], reverse=True)
+    best = sorted(best, key=lambda r: r["rating"], reverse=True)
+    seen, unique_best = set(), []
+    for r in best:                      # one entry per game, like Top rated
+        if r["game_id"] not in seen:
+            seen.add(r["game_id"])
+            unique_best.append(r)
+    return {
+        "playthroughs": len(rows),
+        "games": len({r["game_id"] for r in rows}),
+        "hours": sum(r["hours_played"] or 0 for r in rows),
+        "avg_rating": (sum(rated) / len(rated)) if rated else None,
+        "by_method": order(by_method),
+        "by_played_on": order(by_played_on),
+        "unrecorded_method": sum(1 for r in rows if not r["method"]),
+        "best": unique_best[:5],
+    }
 
 
 # ------------------------------------------------------------------ home
@@ -620,21 +799,26 @@ def get_recent_games(limit=8):
 def get_totals():
     db = get_db()
     row = db.execute(
-        f"""SELECT COUNT(*) AS games,
+        f"""SELECT SUM(NOT {IS_FOLDED_CHILD_SQL}) AS games,
+                   SUM({IS_FOLDED_CHILD_SQL}) AS variants,
                    SUM({OWNED_SQL}) AS owned,
                    SUM({PLAYABLE_SQL}) AS playable
             FROM games g"""
     ).fetchone()
     backlog_n = db.execute("SELECT COUNT(*) AS n FROM backlog WHERE removed_at IS NULL").fetchone()["n"]
-    this_year = db.execute(
-        "SELECT COUNT(*) AS n FROM completions WHERE strftime('%Y', completed_at) = strftime('%Y', 'now')"
-    ).fetchone()["n"]
+    year_row = db.execute(
+        """SELECT COUNT(*) AS n, COALESCE(SUM(hours_played), 0) AS hours FROM completions
+           WHERE strftime('%Y', completed_at) = strftime('%Y', 'now', 'localtime')"""
+    ).fetchone()
+    this_year = year_row["n"]
     return {
         "games": row["games"] or 0,
+        "variants": row["variants"] or 0,
         "owned": row["owned"] or 0,
         "playable": row["playable"] or 0,
         "backlog": backlog_n,
         "completed_this_year": this_year,
+        "hours_this_year": year_row["hours"],
     }
 
 
@@ -669,20 +853,33 @@ def _platform_names_by_game(game_ids):
 
 
 def list_games(q=None, platform_id=None, location=None, format=None,
-               tag_id=None, ownership=None, sort="title"):
-    """One row per game (not per release)."""
+               tag_id=None, ownership=None, sort="title", view=None):
+    """One row per game (not per release).
+
+    view: None   -> grouped: ROM hacks/mods/fan games folded under their
+                    original (only when no other filter/search is active);
+          'flat'      -> every game as its own row
+          'originals' -> hide hacks/mods/fan games
+          'variants'  -> only hacks/mods/fan games
+    Returns (rows, folded) where `folded` says whether grouping applied."""
     sql = f"""
         SELECT g.id AS game_id, g.title, g.edition_note, g.cover_image_path,
-               g.length_hours, g.created_at,
+               g.length_hours, g.created_at, g.relation_kind,
+               p.id AS parent_id, p.title AS parent_title,
                (SELECT MIN(r.release_year) FROM releases r WHERE r.game_id = g.id) AS first_year,
                {OWNED_SQL} AS owned,
                {PLAYABLE_SQL} AS playable,
                {IN_BACKLOG_SQL} AS in_backlog,
                {COMPLETED_SQL} AS completed
         FROM games g
+        LEFT JOIN games p ON p.id = g.related_game_id
         WHERE 1 = 1
     """
     params = []
+    if view == "originals":
+        sql += " AND NOT " + IS_FOLDED_CHILD_SQL
+    elif view == "variants":
+        sql += " AND " + IS_FOLDED_CHILD_SQL
     if q:
         like = f"%{q}%"
         sql += """ AND (g.title LIKE ? OR g.edition_note LIKE ?
@@ -724,4 +921,23 @@ def list_games(q=None, platform_id=None, location=None, format=None,
     for r in rows:
         r["platforms"] = names[r["game_id"]]["platforms"]
         r["via_platforms"] = names[r["game_id"]]["via"]
-    return rows
+        r["variants"] = []
+
+    filtered = any([q, platform_id, location, format, tag_id, ownership, view])
+    if filtered:
+        return rows, False
+
+    # Grouped view: move each folded game under the original at the top of
+    # its chain. Top-level rows keep the requested sort order.
+    roots = _fold_roots()
+    by_id = {r["game_id"]: r for r in rows}
+    top = []
+    for r in rows:
+        root = roots.get(r["game_id"])
+        if root and root in by_id:
+            by_id[root]["variants"].append(r)
+        else:
+            top.append(r)
+    for r in top:
+        r["variants"].sort(key=lambda v: ((v["title"] or "").lower(), v["edition_note"] or ""))
+    return top, True

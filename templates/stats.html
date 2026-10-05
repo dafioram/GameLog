@@ -1,46 +1,151 @@
 {% extends "base.html" %}
-{% block title %}Stats — Retro Archive{% endblock %}
+{% from "_macros.html" import platform_badge %}
+{% block title %}Stats{% if mode == 'year' %} {{ year }}{% else %} — all time{% endif %} — Retro Archive{% endblock %}
+
+{% macro how_you_played(by_method, by_played_on, unrecorded) %}
+  {% if by_method or by_played_on %}
+    <div class="how-grid">
+      <div>
+        <div class="saves-head">By method</div>
+        {% if by_method %}
+        <div class="ledger">
+          {% for r in by_method %}
+            <div class="ledger-row"><span class="label">{{ r['method']|method_label }}</span><span class="value">{{ r['n'] }} beaten · {{ '%.0f'|format(r['hours'] or 0) }}h</span></div>
+          {% endfor %}
+        </div>
+        {% else %}<p class="muted">No methods recorded.</p>{% endif %}
+      </div>
+      <div>
+        <div class="saves-head">By system played on</div>
+        {% if by_played_on %}
+        <div class="ledger">
+          {% for r in by_played_on %}
+            <div class="ledger-row"><span class="label">{{ platform_badge(r['platform']) }} <span class="pb-full">{{ r['platform'] }}</span></span><span class="value">{{ r['n'] }} beaten · {{ '%.0f'|format(r['hours'] or 0) }}h</span></div>
+          {% endfor %}
+        </div>
+        {% else %}<p class="muted">Nothing recorded.</p>{% endif %}
+      </div>
+    </div>
+    {% if unrecorded %}<p class="muted hint-block">{{ unrecorded }} completion{{ '' if unrecorded == 1 else 's' }} without a method aren't counted under “By method”. “By system” uses the copy's own system when none was recorded.</p>{% endif %}
+  {% else %}
+    <p class="muted">Record a method and the system you played on when you mark a game beaten, and this fills in.</p>
+  {% endif %}
+{% endmacro %}
+
 {% block content %}
 
-<h2>Stats</h2>
+<div class="section-title"><h2>Stats</h2></div>
 
-<div class="stat-row">
-  <div class="stat"><span class="n">{{ stats.totals['games_beaten'] or 0 }}</span><span class="label">games beaten</span></div>
-  <div class="stat"><span class="n">{{ '%.0f'|format(stats.totals['total_hours'] or 0) }}</span><span class="label">hours logged</span></div>
-  <div class="stat"><span class="n">{{ '%.1f'|format(stats.totals['avg_rating']) if stats.totals['avg_rating'] else '—' }}</span><span class="label">average rating</span></div>
-</div>
+<nav class="year-switch" aria-label="Choose a year">
+  {% if mode == 'year' and year not in years %}<a class="active" aria-current="page" href="{{ url_for('stats', year=year) }}">{{ year }}</a>{% endif %}
+  {% for y in years %}
+    <a href="{{ url_for('stats', year=y) }}" class="{{ 'active' if mode == 'year' and y == year }}" {{ 'aria-current=page' if mode == 'year' and y == year }}>{{ y }}</a>
+  {% endfor %}
+  <a href="{{ url_for('stats_all') }}" class="{{ 'active' if mode == 'all' }}" {{ 'aria-current=page' if mode == 'all' }}>All time</a>
+</nav>
 
-<div class="card">
-  <h3>Beaten by year</h3>
-  {% if stats.by_year %}
-    <div class="year-bars">
-      {% for row in stats.by_year %}
-        <div class="year-bar-row">
-          <div>{{ row['year'] }}</div>
-          <div class="year-bar-track">
-            <div class="year-bar-fill" style="width: {{ ((row['total_hours'] or 0) / max_hours * 100) if max_hours else 0 }}%;"></div>
-          </div>
-          <div class="hours">{{ '%.0f'|format(row['total_hours'] or 0) }}h, {{ row['games_beaten'] }} beaten</div>
-        </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <p class="muted">No completions logged yet. Mark a game as beaten from its detail page to start tracking.</p>
-  {% endif %}
-</div>
+{% if mode == 'year' %}
 
-{% if stats.top_rated %}
-<div class="card">
-  <h3>Top rated</h3>
-  <div class="ledger">
-    {% for r in stats.top_rated %}
-      <div class="ledger-row">
-        <a href="{{ url_for('game_detail', game_id=r['game_id']) }}" class="label">{{ r['title'] }}{% if r['edition_note'] %} — {{ r['edition_note'] }}{% endif %}</a>
-        <span class="value">{{ r['rating'] }}/10</span>
-      </div>
-    {% endfor %}
+  <div class="stat-row">
+    <div class="stat"><span class="n">{{ summary.playthroughs }}</span><span class="label">playthrough{{ '' if summary.playthroughs == 1 else 's' }}{% if summary.games != summary.playthroughs %} · {{ summary.games }} different game{{ '' if summary.games == 1 else 's' }}{% endif %}</span></div>
+    <div class="stat"><span class="n">{{ '%.0f'|format(summary.hours) }}</span><span class="label">hours logged</span></div>
+    <div class="stat"><span class="n">{{ '%.1f'|format(summary.avg_rating) if summary.avg_rating is not none else '—' }}</span><span class="label">average rating</span></div>
   </div>
-</div>
+
+  <div class="card">
+    <h3>{{ year }} journal</h3>
+    {% if journal %}
+      <ol class="journal">
+        {% for e in journal %}
+          <li class="journal-row">
+            <span class="j-date">{{ e['completed_at']|month_day }}</span>
+            <span class="j-title">
+              <a href="{{ url_for('game_detail', game_id=e['game_id']) }}">{{ e['title'] }}</a>{% if e['edition_note'] %} <span class="muted">— {{ e['edition_note'] }}</span>{% endif %}
+              {% if e['parent_id'] and e['relation_kind'] in FOLDED_KINDS %}<span class="relation-line muted">{{ e['relation_kind']|relation_phrase }} {{ e['parent_title'] }}</span>{% endif %}
+            </span>
+            <span class="j-system">{{ platform_badge(e['played_on_name']) }}</span>
+            <span class="j-method muted">{{ e['method']|method_label }}</span>
+            <span class="j-hours">{{ e['hours_played']|hours if e['hours_played'] is not none else '' }}</span>
+            <span class="j-rating">{% if e['rating'] %}<span class="rating-pill">{{ e['rating'] }}/10</span>{% endif %}</span>
+          </li>
+        {% endfor %}
+      </ol>
+      <p class="muted hint-block">Notes and saves for each playthrough are on the game's page.</p>
+    {% else %}
+      <p class="muted">Nothing beaten in {{ year }} yet. Mark a game as beaten from its page and it shows up here.</p>
+    {% endif %}
+  </div>
+
+  {% if journal %}
+  <div class="stats-pair">
+    <div class="card">
+      <h3>Best of {{ year }}</h3>
+      {% if summary.best %}
+        <ol class="ledger best-list">
+          {% for e in summary.best %}
+            <li class="ledger-row"><a class="label" href="{{ url_for('game_detail', game_id=e['game_id']) }}">{{ e['title'] }}</a><span class="value"><span class="rating-pill">{{ e['rating'] }}/10</span></span></li>
+          {% endfor %}
+        </ol>
+      {% else %}<p class="muted">No ratings this year yet.</p>{% endif %}
+    </div>
+    <div class="card">
+      <h3>How you played</h3>
+      {{ how_you_played(summary.by_method, summary.by_played_on, summary.unrecorded_method) }}
+    </div>
+  </div>
+  {% endif %}
+
+{% else %}
+
+  <div class="stat-row">
+    <div class="stat"><span class="n">{{ stats.totals['games_beaten'] or 0 }}</span><span class="label">playthroughs</span></div>
+    <div class="stat"><span class="n">{{ '%.0f'|format(stats.totals['total_hours'] or 0) }}</span><span class="label">hours logged</span></div>
+    <div class="stat"><span class="n">{{ '%.1f'|format(stats.totals['avg_rating']) if stats.totals['avg_rating'] else '—' }}</span><span class="label">average rating</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Beaten by year</h3>
+    {% if stats.by_year %}
+      <div class="year-bars">
+        {% for row in stats.by_year %}
+          <div class="year-bar-row">
+            <div><a href="{{ url_for('stats', year=row['year']|int) }}">{{ row['year'] }}</a></div>
+            <div class="year-bar-track">
+              <div class="year-bar-fill" style="width: {{ ((row['total_hours'] or 0) / max_hours * 100) if max_hours else 0 }}%;"></div>
+            </div>
+            <div class="hours">{{ '%.0f'|format(row['total_hours'] or 0) }}h, {{ row['games_beaten'] }} beaten</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No completions logged yet. Mark a game as beaten from its detail page to start tracking.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Top rated</h3>
+    {% if stats.top_rated %}
+      <ol class="top-rated">
+        {% for r in stats.top_rated %}
+          <li class="top-row">
+            <span class="top-rank">{{ loop.index }}</span>
+            {% if r['cover_image_path'] %}<img class="top-cover" src="{{ url_for('cover_file', filename=r['cover_image_path']) }}" alt="" loading="lazy">{% else %}<span class="top-cover placeholder"></span>{% endif %}
+            <span class="top-title"><a href="{{ url_for('game_detail', game_id=r['game_id']) }}">{{ r['title'] }}</a>{% if r['edition_note'] %} <span class="muted">— {{ r['edition_note'] }}</span>{% endif %}
+              <span class="muted top-meta">{{ r['completed_at'][:4] }}{% if r['times'] > 1 %} · beaten {{ r['times'] }}×{% endif %}</span></span>
+            <span class="rating-pill big">{{ r['rating'] }}/10</span>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="muted">Rate a game when you mark it beaten and it'll be ranked here.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>How you play</h3>
+    {{ how_you_played(stats.by_method, stats.by_played_on, stats.unrecorded_method) }}
+  </div>
+
 {% endif %}
 
 {% endblock %}

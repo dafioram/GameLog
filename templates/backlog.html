@@ -69,6 +69,7 @@
         <span class="backlog-title">
           <a href="{{ url_for('game_detail', game_id=e['game_id']) }}">{{ e['title'] }}</a>
           {% if e['edition_note'] %}<span class="muted"> — {{ e['edition_note'] }}</span>{% endif %}
+          {% if e['parent_id'] and e['relation_kind'] in FOLDED_KINDS %}<span class="relation-line muted">{{ e['relation_kind']|relation_phrase }} {{ e['parent_title'] }}</span>{% endif %}
         </span>
         <span class="length-col muted">{{ e['length_hours']|hours }}</span>
         <span class="move-buttons">

@@ -117,32 +117,77 @@ variables always take precedence over `.env`.
 Games, releases, and copies are three separate layers:
 
 - A **game** is what you play and track: backlog, completions, tags,
-  cover art, and length. A remake or rework is a **separate game**,
-  cross-linked through "Related game" (the link shows on both games' pages),
-  so beating one doesn't mark the other as beaten.
+  cover art, and length. A remake, ROM hack, mod or fan game is a
+  **separate game**, linked to the game it comes from (see
+  [Linked games](#linked-games-rom-hacks-mods-remakes)), so beating one
+  doesn't mark the other as beaten.
 - A **release** is a regional or platform edition (USA SNES cart, Japan
   Super Famicom, DS re-release). Beating any release counts as beating the
   game.
-- A **copy** is one concrete way you can play a release. It has a format,
-  an optional "played via" platform, a location, an optional file path, an
-  optional **link**, free-text **notes**, and an **"I own this"** checkbox.
+- A **copy** is something you *have*: a cartridge, a ROM file, a Steam
+  license, a Switch Online subscription. It has a format, a location, an
+  optional file path, an optional **link**, free-text **notes**, an
+  **"I own this"** checkbox, and, only when the copy exists solely on
+  another system, an **"Accessed through"** platform (e.g. Switch for
+  Switch Online).
+- **How you played** is recorded on each **completion**, not on the copy,
+  because one copy can be played many ways. One SNES ROM might be played on
+  a Steam Deck in an emulator, on a MiSTer, or on a real SNES through a
+  flashcart.
 
 Some examples of copies:
 
-| You have… | Format | Via | Location / path / link | Owned? |
+| You have… | Format | Accessed through | Location / path / link | Owned? |
 |---|---|---|---|---|
 | The cartridge | Physical | — | Closet box 3 | ✔ |
 | A ROM backup on the NAS | Digital ROM | — | NAS | ✔ |
 | A ROM the app can read | Digital ROM | — | path `/library/SNES/…` | ✔ |
-| A decomp / source port (e.g. SM64 → PC) | Source port | PC | Steam Deck; notes: build, required ROM | ✔ |
 | A fan translation | Patched ROM | — | NAS; notes: patch name and version | ✔ |
+| A Steam purchase | Steam | — | store link | ✔ |
 | A browser-playable version | Web | — | link `https://…` | ✘ |
 | A SNES game through Switch Online | Subscription | Switch | — | ✘ |
 
+And how you played, recorded when you mark a game beaten:
+
+| Copy used | Played on | Method |
+|---|---|---|
+| SNES ROM on the NAS | Steam Deck | Emulator |
+| Same ROM | SNES | Flashcart / ODE |
+| SM64 USA ROM | PC | Source port (notes: "sm64ex") |
+| Switch Online | *(blank → Switch)* | Official re-release |
+| The cartridge | *(blank → SNES)* | Original hardware |
+
+"Played on" left blank means the copy's own system. The method is a fixed
+list (Original hardware, Flashcart / ODE, FPGA, Emulator, Official
+re-release, Source port, Other) so the Stats page can count it; put
+details like the emulator name in the completion's notes.
+
 The rule used to decide between a copy and a new game: **if beating it
-counts as beating the original, it's a copy.** Decomps, fan translations,
-and ports are copies. A rom hack with new content, or a rework, is its own
-game (tag it "Rom hack" and link it to the original).
+counts as beating the original, it's a copy.** Fan translations and ports
+are copies, and a source port is a *method* of playing your ROM. A ROM
+hack with new content, a mod, or a remake is its own game, linked to the
+original.
+
+### Linked games (ROM hacks, mods, remakes)
+
+On the Add game or Edit game form: *"This game is a [ROM hack ▾] of
+[Super Metroid ▾]"*. The kinds are Related, ROM hack, Mod, Fan game,
+Remake and Remaster.
+
+- **ROM hacks, mods and fan games are folded under their original** in the
+  games list ("+3 ROM hacks", click to expand), so they don't swamp it.
+  A hack of a hack folds under the original at the top. The original's
+  page lists them in a "Hacks & mods" box with their status.
+- **Remakes and remasters stay in the list** as their own games, with a
+  "Remake of…" line.
+- **Folding only applies with no search or filters on.** Otherwise every
+  match is listed as its own row with a "ROM hack of…" line. The
+  "Hacks & mods" selector can also list them separately, hide them, or
+  show only them.
+- **In the backlog, hacks are ordinary entries** (it's your ranked queue),
+  with a "ROM hack of…" line under the title.
+- To fold under something, the original must be in your catalog. If you
+  don't own it, add it with no copies; it shows as "—".
 
 **Owned vs. playable.** Any copy makes a game *playable*. A copy with
 "I own this" ticked makes it *owned*. Untick the box for web links and
@@ -150,19 +195,20 @@ subscription access. Owned games are always also playable. Each game
 shows one status: **Owned**, **Playable** (link or subscription access
 only), or **—** (no copies yet).
 
-**Platforms include "via".** Filtering the games list or backlog by
-*Switch* also shows SNES games you play through Switch Online. The home
-page counts games per platform the same way.
+**Platforms include "accessed through".** Filtering the games list or
+backlog by *Switch* also shows SNES games you play through Switch Online.
+The home page counts games per platform the same way.
 
 Only a **title** and **platform** are required to add a game.
 
 ## Features
 
 - **Games list:** one row per game, showing every platform it's on, its
-  status, its length, and Backlog/Beaten badges. Filter by platform
-  (including "via"), location, format, tag, and status (Owned /
-  Playable / Not playable). Sort by title, first release year, recently
-  added, or length.
+  status, its length, and Backlog/Beaten badges. ROM hacks and mods are
+  folded under their original. Filter by platform (including "accessed
+  through"), location, format, tag, status (Owned / Playable / Not
+  playable), and how hacks & mods are shown. Sort by title, first release
+  year, recently added, or length.
 - **Cover art:** set per game. Choosing an image uploads and sets it
   immediately; "Clear cover" removes it. Images are checked by their
   content, not their file name (PNG, JPEG, GIF, WebP).
@@ -180,8 +226,8 @@ Only a **title** and **platform** are required to add a game.
   be sorted on. Games with no length show "-" and always sort last.
 - **Completion history:** a log of every playthrough, so the same game can
   be beaten more than once. Each entry has a date, hours played, a 1–10
-  rating, notes, and optionally **which copy you played it on**
-  ("via Source port — Nintendo 64 via PC"). Entries can be edited.
+  rating, notes, and optionally **which copy you used**, the **system you
+  played on**, and the **method**. Entries can be edited.
 - **Integrity checking:** only for copies with a file path. "Compute hash"
   stores SHA-256, CRC32, and the file size. "Verify" re-hashes the file and
   marks it verified, modified, or missing. Changing a copy's path clears its
@@ -193,7 +239,9 @@ Only a **title** and **platform** are required to add a game.
   linked to the **completion** it came from. Upload a save from a copy on
   the game page, or attach one while using **Mark as beaten**. Saves can be
   downloaded with their original file name, relabelled, annotated, moved to
-  another copy of the same game, or deleted.
+  another copy of the same game, or deleted. A save takes its method from
+  the completion it's linked to; a save without one can have its own
+  method, so you know an sm64ex save is a Source port save.
   - Uploads are limited to 64 MB by default (`RETRO_MAX_UPLOAD_MB`). Zip
     folders such as PC saves or RetroArch save-state sets.
   - Save files can't be replaced, so a copy or release that still has
@@ -202,8 +250,26 @@ Only a **title** and **platform** are required to add a game.
   - The vault holds snapshots you choose to keep. Keeping live saves in
     sync between devices is a different job, better handled by Syncthing
     (RetroArch saves) or Ludusavi (PC game saves).
-- **Stats:** games beaten and hours played per year, average rating, and
-  your top-rated games.
+- **Home (dashboard):** your totals (games, owned, playable, backlog,
+  beaten and hours this year), **Recently beaten** covers with the system
+  you played on, platform counts, recently added games, and archive health.
+- **Stats, one year at a time:** a year switcher (*2026 · 2025 · … · All
+  time*) that opens on the current year, or the latest year you beat
+  something. Each year shows:
+  - playthroughs and different games (a replay counts as a playthrough, not
+    an extra game), hours and average rating;
+  - **the year's journal**, one line per playthrough: date, title, a
+    platform badge for the system you played on, method, hours and rating.
+    Notes and saves stay on the game's page;
+  - **Best of the year** (each game once), and **How you played** that
+    year, by method and by system.
+- **Stats → All time:** lifetime totals, beaten-per-year bars (click a year
+  to open it), **Top rated** (each game once, at its best rating, with
+  "beaten 2×" for replays), and How you play across all years.
+- **Platform badges** are an original design: a short name (*PS4*, *SNES*,
+  *Deck*) tinted by console family, with a small generic device icon
+  (console, handheld or computer). They aren't manufacturer logos. Unknown
+  platforms get a neutral badge.
 
 ## Project layout
 
@@ -215,18 +281,20 @@ db.py                Connection, transactions, schema versioning, CLI commands
 queries.py           All the SQL
 hashing.py           Chunked SHA-256 / CRC32 for large files
 storage.py           Hash-named, streamed storage for uploaded save files
-schema.sql           Current schema (version 2)
+vocab.py             Fixed lists: play methods and game-link kinds
+platforms.py         Platform badges: short names, family tint, device kind
+schema.sql           Current schema (version 3)
 seed_platforms.py    Default platform list
 gunicorn.conf.py     Server settings (used by Docker)
 docker-entrypoint.sh Fixes ./data ownership, then runs the app as PUID:PGID
 Dockerfile           Container image
 docker-compose.yml   Docker Compose setup (ports and volumes come from .env)
 .env.example         Documented settings template
-templates/           Jinja2 templates (server-rendered, no JS framework)
+templates/           Jinja2 templates (server-rendered, no JS framework; _macros.html = shared form pieces)
 static/              CSS, plus a little progressive-enhancement JS
 data/                Database, assets/covers/, assets/saves/ (entirely gitignored, auto-created)
 library/             Default Docker mount point for game files (gitignored)
-tests/               pytest suite
+tests/               pytest suite (tests/fixtures/ = frozen old schemas for upgrade tests)
 ```
 
 ## Data, backups, and upgrades
@@ -245,7 +313,15 @@ tests/               pytest suite
 - **Schema versioning:** the database stores its schema version
   (`PRAGMA user_version`). Schema changes come with numbered migrations in
   `db.py`. Each one runs in a transaction and upgrades your database
-  automatically at startup. Version 2 added the save vault.
+  automatically at startup. If a step fails, the database is left exactly
+  as it was. Version 2 added the save vault; version 3 added game-link
+  kinds and played-on / method.
+- **Upgrades only add.** They never remove or rewrite what you've entered.
+  Version 3 adds empty fields, and existing related-game links become
+  "Related" (not folded) until you change their kind.
+- **Before upgrading, back up `data/`.** Upgrades are one-way: an older app
+  version refuses to open a newer database, rather than risk damaging it.
+  To go back, restore your backup.
 - **Coming from the earlier prototype:** this version doesn't migrate
   databases created before schema versioning. The app refuses to start and
   explains why, rather than corrupting the file. Move or delete
@@ -279,13 +355,22 @@ your real `data/`. The tests cover:
 
 - full create/edit/delete flows and input validation;
 - owned vs. playable, and copy links, notes, and editing;
-- platform filters that include "via";
+- platform filters that include "accessed through";
+- game-link kinds, folding of hacks & mods (including hack-of-hack), the
+  view selector, and refusing links that would loop;
+- played-on, method, and its default from the copy, plus the How you play
+  stats;
+- per-year stats and journal lines, the year switcher and its default
+  year, Best of the year and Top rated showing each game once, the Home
+  dashboard, and platform badge classification;
 - covers stored per game and deduplicated by hash;
 - save vault uploads, downloads, deduplication, file clean-up, the
   delete guards, and saves attached at Mark as beaten;
-- the version 1 → 2 database migration;
+- upgrading real-shaped version 1 and version 2 databases to the current
+  version (built from frozen copies of the old schema), and that a failed
+  upgrade leaves the database untouched;
 - backlog ordering, including that reordering a filtered view is refused;
-- completions recording which copy was played;
+- completions recording which copy was used;
 - the remake and regional-release rules;
 - the cross-site form block;
 - schema versioning and the settings / `.env` handling.

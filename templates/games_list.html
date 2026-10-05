@@ -3,7 +3,7 @@
 {% block content %}
 
 <div class="section-title">
-  <h2>Games {% if games %}<span class="muted">({{ games|length }})</span>{% endif %}</h2>
+  <h2>Games {% if games %}<span class="muted">({{ games|length }}{% if grouped and folded_count %} + {{ folded_count }} hacks &amp; mods{% endif %})</span>{% endif %}</h2>
   <a class="btn" href="{{ url_for('game_new') }}">Add a game</a>
 </div>
 
@@ -61,6 +61,16 @@
   </div>
 
   <div class="field">
+    <label for="f-view">Hacks &amp; mods</label>
+    <select id="f-view" name="view">
+      <option value="" {{ 'selected' if not filters.view }}>Grouped under original</option>
+      <option value="flat" {{ 'selected' if filters.view == 'flat' }}>Listed separately</option>
+      <option value="originals" {{ 'selected' if filters.view == 'originals' }}>Hidden</option>
+      <option value="variants" {{ 'selected' if filters.view == 'variants' }}>Only hacks &amp; mods</option>
+    </select>
+  </div>
+
+  <div class="field">
     <label for="f-sort">Sort</label>
     <select id="f-sort" name="sort">
       <option value="title" {{ 'selected' if filters.sort == 'title' }}>Title</option>
@@ -74,12 +84,13 @@
   <div class="field">
     <button type="submit">Apply</button>
   </div>
-  {% if filters.q or filters.platform_id or filters.location or filters.format or filters.tag_id or filters.ownership or filters.sort != 'title' %}
+  {% if filters.q or filters.platform_id or filters.location or filters.format or filters.tag_id or filters.ownership or filters.view or filters.sort != 'title' %}
     <div class="field"><a href="{{ url_for('games_list') }}">Clear filters</a></div>
   {% endif %}
 </form>
 
 {% if filters.q %}<p class="muted">Search: “{{ filters.q }}”</p>{% endif %}
+{% if not grouped and not filters.view %}<p class="muted hint-block">Filters are on, so hacks &amp; mods are listed as their own rows.</p>{% endif %}
 
 {% if games %}
   <div class="ledger">
@@ -95,8 +106,11 @@
             <a href="{{ url_for('game_detail', game_id=g['game_id']) }}">{{ g['title'] }}</a>
             {% if g['edition_note'] %}<span class="muted"> — {{ g['edition_note'] }}</span>{% endif %}
           </div>
+          {% if g['parent_id'] and g['relation_kind'] and g['relation_kind'] != 'related' %}
+            <div class="relation-line muted">{{ g['relation_kind']|relation_phrase }} <a href="{{ url_for('game_detail', game_id=g['parent_id']) }}">{{ g['parent_title'] }}</a></div>
+          {% endif %}
           <div class="meta-line">
-            <span class="field">{{ g['platforms']|join(' · ') }}{% if g['via_platforms'] %} <span class="via">· via {{ g['via_platforms']|join(', ') }}</span>{% endif %}</span>
+            <span class="field">{{ g['platforms']|join(' · ') }}{% if g['via_platforms'] %} <span class="via">· through {{ g['via_platforms']|join(', ') }}</span>{% endif %}</span>
             {% if g['first_year'] %}<span class="field">{{ g['first_year'] }}</span>{% endif %}
             {% if g['length_hours'] is not none %}<span class="field">{{ g['length_hours']|hours }}</span>{% endif %}
           </div>
@@ -112,6 +126,23 @@
           {% if g['in_backlog'] %}<span class="badge backlog">Backlog</span>{% endif %}
           {% if g['completed'] %}<span class="badge beaten">Beaten</span>{% endif %}
         </div>
+        {% if g['variants'] %}
+          {% set kinds = g['variants']|map(attribute='relation_kind')|unique|list %}
+          <details class="variants">
+            <summary>+{{ g['variants']|length }} {% if kinds == ['rom_hack'] %}ROM hack{{ '' if g['variants']|length == 1 else 's' }}{% else %}hack{{ '' if g['variants']|length == 1 else 's' }} &amp; mods{% endif %}</summary>
+            <ul class="variant-list">
+              {% for v in g['variants'] %}
+                <li>
+                  <a href="{{ url_for('game_detail', game_id=v['game_id']) }}">{{ v['title'] }}</a>{% if v['edition_note'] %} <span class="muted">— {{ v['edition_note'] }}</span>{% endif %}
+                  {% if (v['edition_note'] or '')|lower != RELATION_KINDS[v['relation_kind']]|lower %}<span class="muted variant-kind">{{ RELATION_KINDS[v['relation_kind']] }}</span>{% endif %}
+                  {% if v['owned'] %}<span class="badge">Owned</span>{% elif v['playable'] %}<span class="badge">Playable</span>{% endif %}
+                  {% if v['in_backlog'] %}<span class="badge backlog">Backlog</span>{% endif %}
+                  {% if v['completed'] %}<span class="badge beaten">Beaten</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
       </div>
     {% endfor %}
   </div>

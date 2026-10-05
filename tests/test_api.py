@@ -131,7 +131,7 @@ def test_copy_notes_and_url_are_shown(client):
     add_copy(client, 1, format="Source port", via_platform="PC", location="Steam Deck",
              url="https://github.com/example/sm64-port", notes="sm64ex build, 60fps\nneeds USA ROM")
     body = page(client, f"/games/{game_id}")
-    assert "Source port" in body and "via PC" in body and "Steam Deck" in body
+    assert "Source port" in body and "through PC" in body and "Steam Deck" in body
     assert 'href="https://github.com/example/sm64-port"' in body
     assert "sm64ex build, 60fps" in body
 
@@ -252,7 +252,7 @@ def test_platform_filter_includes_copies_played_via_that_platform(client):
     switch_id = re.search(r'platform_id=(\d+)">Switch<', home).group(1)
     listing = page(client, f"/games?platform_id={switch_id}")
     assert "Super Metroid" in listing and "Some SNES Cart" not in listing
-    assert "via Switch" in listing
+    assert "through Switch" in listing
 
 
 def test_games_list_filters(client):
@@ -486,7 +486,7 @@ def test_completion_records_which_copy_it_was_played_via(client):
     add_copy(client, 1, format="Source port", via_platform="PC", location="Steam Deck")
     client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-03-01", "copy_id": "2"})
     body = page(client, f"/games/{game_id}")
-    assert "via Source port — Nintendo 64 (USA) via PC · Steam Deck" in body
+    assert "Copy: Source port — Nintendo 64 (USA) through PC · Steam Deck" in body
 
 
 def test_completion_cannot_point_at_another_games_copy(client):
@@ -503,7 +503,7 @@ def test_deleting_the_copy_keeps_the_completion(client):
     client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-01-05", "copy_id": "1"})
     client.post("/copies/1/delete")
     body = page(client, f"/games/{game_id}")
-    assert "2026-01-05" in body and "via Physical" not in body
+    assert "2026-01-05" in body and "Copy: Physical" not in body
 
 
 def test_completion_can_be_edited_and_deleted(client):
@@ -513,7 +513,7 @@ def test_completion_can_be_edited_and_deleted(client):
     client.post("/completions/1/edit", data={"completed_at": "2026-01-02", "rating": "9",
                                              "hours_played": "30.5", "copy_id": "1"})
     body = page(client, f"/games/{game_id}")
-    assert "2026-01-02" in body and "9/10" in body and "30.5h" in body and "via Physical" in body
+    assert "2026-01-02" in body and "9/10" in body and "30.5h" in body and "Copy: Physical" in body
 
     client.post("/completions/1/delete")
     assert "Not marked as beaten yet" in page(client, f"/games/{game_id}")
@@ -556,30 +556,101 @@ def test_default_paths_live_under_data_folder():
 def test_new_database_records_schema_version(app):
     import db as db_module
     conn = sqlite3.connect(app.config["DATABASE"])
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION == 3
     conn.close()
 
 
-def test_version_1_database_is_migrated_to_add_the_save_vault(tmp_path):
-    """A database from before the save vault (schema v1) upgrades in place,
-    keeping its data."""
-    from app import create_app
-    data = tmp_path / "data"
-    app1 = create_app(data_dir=data)
-    client = app1.test_client()
-    create_game(client, title="Kept Across Upgrade")
-    conn = sqlite3.connect(app1.config["DATABASE"])
-    conn.execute("DROP TABLE saves")
-    conn.execute("PRAGMA user_version = 1")
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def _old_database(data_dir, version):
+    """Build a database exactly as an older app version left it, from the
+    frozen schema file for that version, with representative rows."""
+    schema = open(os.path.join(FIXTURES, "schema_v2.sql"), encoding="utf-8").read()
+    if version == 1:  # v1 = v2 without the save vault
+        schema = re.sub(r"CREATE TABLE IF NOT EXISTS saves \(.*?\);", "", schema, flags=re.S)
+        schema = re.sub(r"CREATE INDEX IF NOT EXISTS idx_saves_\w+\s+ON saves\(\w+\);", "", schema)
+    os.makedirs(data_dir, exist_ok=True)
+    conn = sqlite3.connect(os.path.join(data_dir, "retro_archive.db"))
+    conn.executescript(schema)
+    conn.executescript("""
+        INSERT INTO platforms (id, name) VALUES (1, 'SNES'), (2, 'Switch'), (3, 'Nintendo 64'), (4, 'PC');
+        INSERT INTO games (id, title, related_game_id, length_hours) VALUES
+            (1, 'Super Metroid', NULL, 8), (2, 'Super Metroid Redesign', 1, 10),
+            (3, 'Final Fantasy VI', NULL, NULL), (4, 'Super Mario 64', NULL, 12);
+        INSERT INTO releases (id, game_id, platform_id, region) VALUES
+            (1, 1, 1, 'USA'), (2, 2, 1, NULL), (3, 3, 1, 'USA'), (4, 4, 3, 'USA');
+        INSERT INTO copies (id, release_id, format, via_platform_id, location, is_owned) VALUES
+            (1, 1, 'Physical', NULL, 'Closet', 1), (2, 3, 'Subscription', 2, NULL, 0),
+            (3, 4, 'Source port', 4, 'Steam Deck', 1);
+        INSERT INTO completions (id, game_id, copy_id, completed_at, hours_played, rating, notes) VALUES
+            (1, 4, 3, '2026-03-01', 14.5, 9, '120 stars'), (2, 3, 2, '2026-04-01', 40, 10, NULL);
+        INSERT INTO backlog (game_id, sort_order) VALUES (1, 10), (2, 20);
+    """)
+    if version >= 2:
+        conn.execute("""INSERT INTO saves (copy_id, completion_id, label, filename, stored_name, sha256, size)
+                        VALUES (3, 1, '120 stars', 'sm64ex.sav', 'abc.sav', 'abc', 8)""")
+    conn.execute(f"PRAGMA user_version = {version}")
     conn.commit()
     conn.close()
 
-    app2 = create_app(data_dir=data)
-    conn = sqlite3.connect(app2.config["DATABASE"])
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
-    assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'saves'").fetchone()
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_older_database_upgrades_in_place_keeping_everything(tmp_path, version):
+    from app import create_app
+    import db as db_module
+    data = str(tmp_path / "data")
+    _old_database(data, version)
+    app = create_app(data_dir=data)
+
+    conn = sqlite3.connect(app.config["DATABASE"])
+    conn.row_factory = sqlite3.Row
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    # existing values untouched
+    games = {r["id"]: dict(r) for r in conn.execute("SELECT * FROM games")}
+    assert games[2]["related_game_id"] == 1 and games[1]["length_hours"] == 8
+    # existing links become 'related' (so nothing gets folded until you say so)
+    assert games[2]["relation_kind"] == "related" and games[1]["relation_kind"] is None
+    comp = dict(conn.execute("SELECT * FROM completions WHERE id = 1").fetchone())
+    assert (comp["copy_id"], comp["hours_played"], comp["rating"], comp["notes"]) == (3, 14.5, 9, "120 stars")
+    assert comp["method"] is None and comp["played_on_platform_id"] is None
+    assert conn.execute("SELECT via_platform_id FROM copies WHERE id = 2").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM backlog WHERE removed_at IS NULL").fetchone()[0] == 2
+    save_cols = {r["name"] for r in conn.execute("PRAGMA table_info(saves)")}
+    assert "method" in save_cols
+    if version == 2:
+        assert conn.execute("SELECT label FROM saves").fetchone()[0] == "120 stars"
     conn.close()
-    assert "Kept Across Upgrade" in app2.test_client().get("/games").data.decode()
+
+    # and the app works on it
+    client = app.test_client()
+    for url in ["/", "/games", "/backlog", "/stats", "/games/1", "/games/2", "/games/4"]:
+        assert client.get(url).status_code == 200, url
+    listing = client.get("/games").data.decode()
+    assert "Super Metroid Redesign" in listing                 # 'related' isn't folded
+    assert "through Switch" in listing                          # Switch Online copy kept
+    assert "on PC" in client.get("/games/4").data.decode()      # derived from the copy's 'through PC'
+
+
+def test_a_failed_upgrade_leaves_the_database_untouched(tmp_path, monkeypatch):
+    from app import create_app
+    import db as db_module
+    data = str(tmp_path / "data")
+    _old_database(data, 2)
+
+    def broken(conn):
+        conn.execute("ALTER TABLE games ADD COLUMN relation_kind TEXT")
+        raise RuntimeError("simulated failure halfway through")
+    monkeypatch.setitem(db_module.MIGRATIONS, 3, broken)
+    with pytest.raises(RuntimeError):
+        create_app(data_dir=data)
+    conn = sqlite3.connect(os.path.join(data, "retro_archive.db"))
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(games)")}
+    assert "relation_kind" not in cols                          # rolled back
+    conn.close()
 
 
 def test_prototype_database_is_refused_with_a_clear_message(tmp_path):
@@ -840,3 +911,268 @@ def test_cover_picker_shows_size_hint(client):
     body = page(client, f"/games/{game_id}")
     assert 'id="cover-hint"' in body and "3:4 portrait, 480 × 640+" in body
     assert 'aria-describedby="cover-hint"' in body   # read out with the file picker
+
+
+# ================================================= typed links & hack folding
+
+def _link(client, game_id, target_id, kind, title):
+    resp = client.post(f"/games/{game_id}/edit", data={"title": title, "related_game_id": str(target_id),
+                                                       "relation_kind": kind}, follow_redirects=True)
+    assert resp.status_code == 200
+    return resp
+
+
+def _top_level_titles(body):
+    """Titles of the games-list rows themselves (not games folded inside them)."""
+    return [re.search(r'<div class="title-line">\s*<a href="/games/\d+">([^<]+)</a>', row).group(1)
+            for row in _game_rows(body)]
+
+
+def test_rom_hacks_fold_under_their_original_in_the_games_list(client):
+    sm = create_game(client, title="Super Metroid")
+    hack = create_game(client, title="Super Metroid Redesign", related_game_id=str(sm), relation_kind="rom_hack")
+    remake = create_game(client, title="Metroid: Zero Mission")
+    _link(client, remake, sm, "remake", "Metroid: Zero Mission")
+
+    body = page(client, "/games")
+    tops = _top_level_titles(body)
+    assert "Super Metroid Redesign" not in tops               # folded...
+    assert "Super Metroid" in tops and "Metroid: Zero Mission" in tops   # ...remakes are not
+    assert "+1 ROM hack" in body and "Super Metroid Redesign" in body    # ...but listed under it
+    assert "+ 1 hacks &amp; mods" in body                      # header count
+
+    # original's page lists it; the hack's page says what it's a hack of
+    assert "Hacks &amp; mods" in page(client, f"/games/{sm}")
+    hack_page = page(client, f"/games/{hack}")
+    assert "ROM hack of" in hack_page and "Super Metroid" in hack_page
+    assert "Remake of" in page(client, f"/games/{remake}")
+
+
+def test_filters_and_view_selector_unfold_hacks(client):
+    sm = create_game(client, title="Super Metroid")
+    create_game(client, title="Super Metroid Redesign", related_game_id=str(sm), relation_kind="rom_hack")
+    body = page(client, "/games?q=Redesign")
+    assert "Super Metroid Redesign" in _top_level_titles(body)
+    assert "ROM hack of" in body and "listed as their own rows" in body
+
+    assert "Super Metroid Redesign" in _top_level_titles(page(client, "/games?view=flat"))
+    assert _top_level_titles(page(client, "/games?view=originals")) == ["Super Metroid"]
+    assert _top_level_titles(page(client, "/games?view=variants")) == ["Super Metroid Redesign"]
+
+
+def test_a_hack_of_a_hack_folds_under_the_original(client):
+    sm = create_game(client, title="Super Metroid")
+    h1 = create_game(client, title="Hack One", related_game_id=str(sm), relation_kind="rom_hack")
+    create_game(client, title="Hack Of Hack One", related_game_id=str(h1), relation_kind="rom_hack")
+    body = page(client, "/games")
+    assert _top_level_titles(body) == ["Super Metroid"]
+    assert "+2 ROM hacks" in body
+
+
+def test_mixed_variant_kinds_are_labelled_hacks_and_mods(client):
+    g = create_game(client, title="Doom")
+    create_game(client, title="Sigil", related_game_id=str(g), relation_kind="mod")
+    create_game(client, title="Freedoom-ish Hack", related_game_id=str(g), relation_kind="rom_hack")
+    assert "+2 hacks &amp; mods" in page(client, "/games")
+
+
+def test_links_cannot_loop(client):
+    a = create_game(client, title="A")
+    b = create_game(client, title="B", related_game_id=str(a), relation_kind="rom_hack")
+    resp = _link(client, a, b, "rom_hack", "A")
+    assert b"loop back" in resp.data
+    resp = _link(client, a, a, "related", "A")
+    assert b"loop back" in resp.data
+
+
+def test_unknown_link_kind_is_rejected(client):
+    a = create_game(client, title="A")
+    resp = client.post("/games/new", data={"title": "B", "platform": "SNES", "related_game_id": str(a),
+                                           "relation_kind": "nonsense"}, follow_redirects=True)
+    assert b"kind of link" in resp.data
+
+
+def test_hacks_show_in_backlog_as_their_own_entry_with_a_subtitle(client):
+    sm = create_game(client, title="Super Metroid")
+    hack = create_game(client, title="Redesign", related_game_id=str(sm), relation_kind="rom_hack")
+    client.post(f"/games/{hack}/backlog/add")
+    body = page(client, "/backlog")
+    assert "Redesign" in body and "ROM hack of Super Metroid" in body
+
+
+def test_home_counts_hacks_separately(client):
+    sm = create_game(client, title="Super Metroid")
+    create_game(client, title="Redesign", related_game_id=str(sm), relation_kind="rom_hack")
+    body = page(client, "/")
+    assert re.search(r'<span class="n">1</span><span class="label">games catalogued <br>\+ 1 hack ', body)
+
+
+# ================================================= how a playthrough happened
+
+def test_completion_records_played_on_and_method(client):
+    game_id = create_game(client, title="Super Metroid")
+    add_copy(client, 1, format="Digital ROM", location="NAS")
+    client.post(f"/games/{game_id}/complete", data={"copy_id": "1", "played_on": "Steam Deck",
+                                                    "method": "emulator", "hours_played": "7"})
+    body = page(client, f"/games/{game_id}")
+    assert "on Steam Deck" in body and ">Emulator<" in body and "Copy: Digital ROM" in body
+
+
+def test_played_on_defaults_to_the_copys_own_system(client):
+    game_id = create_game(client, title="Super Metroid", platform="SNES")
+    add_copy(client, 1, format="Physical")
+    client.post(f"/games/{game_id}/complete", data={"copy_id": "1", "method": "original_hardware"})
+    assert "on SNES" in page(client, f"/games/{game_id}")
+
+
+def test_played_on_default_uses_accessed_through_system(client):
+    game_id = create_game(client, title="Final Fantasy VI", platform="SNES")
+    add_copy(client, 1, format="Subscription", via_platform="Switch", is_owned="0")
+    client.post(f"/games/{game_id}/complete", data={"copy_id": "1", "method": "official_rerelease"})
+    assert "on Switch" in page(client, f"/games/{game_id}")
+
+
+def test_unknown_method_is_rejected(client):
+    game_id = create_game(client)
+    resp = client.post(f"/games/{game_id}/complete", data={"method": "magic"}, follow_redirects=True)
+    assert b"method from the list" in resp.data
+    assert "Not marked as beaten yet" in page(client, f"/games/{game_id}")
+
+
+def test_editing_a_completion_sets_played_on_and_method(client):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Digital ROM")
+    client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-01-01"})
+    client.post("/completions/1/edit", data={"completed_at": "2026-01-01", "copy_id": "1",
+                                             "played_on": "MiSTer", "method": "fpga"})
+    body = page(client, f"/games/{game_id}")
+    assert "on MiSTer" in body and ">FPGA<" in body
+
+
+def test_save_method_comes_from_its_completion_or_its_own_field(client):
+    game_id = create_game(client)
+    add_copy(client, 1, format="Digital ROM")
+    client.post(f"/games/{game_id}/complete", data={"copy_id": "1", "method": "source_port",
+                                                    "save": (BytesIO(b"clear"), "clear.sav")},
+                content_type="multipart/form-data")
+    _upload_save(client, 1, data=b"loose", name="loose.srm", method="emulator")
+    body = page(client, f"/games/{game_id}")
+    assert re.search(r"clear\.sav · [^<]*Source port", body)
+    assert re.search(r"loose\.srm · [^<]*Emulator", body)
+
+
+def test_stats_show_how_you_play(client):
+    g1 = create_game(client, title="One", platform="SNES")
+    add_copy(client, 1, format="Digital ROM")
+    g2 = create_game(client, title="Two", platform="SNES")
+    add_copy(client, 2, format="Physical")
+    client.post(f"/games/{g1}/complete", data={"copy_id": "1", "method": "emulator",
+                                               "played_on": "Steam Deck", "hours_played": "10"})
+    client.post(f"/games/{g2}/complete", data={"copy_id": "2", "method": "original_hardware", "hours_played": "5"})
+    client.post(f"/games/{g2}/complete", data={})      # no method recorded
+    body = page(client, "/stats")
+    assert "How you play" in body
+    assert "Emulator" in body and "Original hardware" in body
+    assert "Steam Deck" in body and "SNES" in body
+    assert "1 completion without a method" in body
+
+
+# ===================================================== stats by year & journal
+
+def _beat(client, game_id, **data):
+    data.setdefault("completed_at", "2026-05-01")
+    resp = client.post(f"/games/{game_id}/complete", data=data)
+    assert resp.status_code == 302
+
+
+def test_year_journal_lines_show_system_method_hours_and_rating_but_not_notes(client):
+    game_id = create_game(client, title="Chrono Trigger", platform="SNES")
+    add_copy(client, 1, format="Digital ROM")
+    _beat(client, game_id, completed_at="2026-03-14", copy_id="1", played_on="Steam Deck",
+          method="emulator", hours_played="28", rating="9", notes="SECRET NOTE TEXT")
+    body = page(client, "/stats/2026")
+    row = body.split('class="journal-row"')[1].split("</li>")[0]
+    assert "Mar 14" in row and "Chrono Trigger" in row
+    assert 'class="pbadge pb-pc"' in row and ">Deck<" in row and 'title="Steam Deck"' in row
+    assert "Emulator" in row and "28h" in row and "9/10" in row
+    assert "SECRET NOTE TEXT" not in body
+
+
+def test_journal_badge_defaults_to_the_copys_system(client):
+    game_id = create_game(client, title="Super Metroid", platform="SNES")
+    add_copy(client, 1, format="Physical")
+    _beat(client, game_id, copy_id="1", method="original_hardware")
+    row = page(client, "/stats/2026").split('class="journal-row"')[1]
+    assert 'class="pbadge pb-nintendo"' in row and ">SNES<" in row
+
+
+def test_year_numbers_separate_playthroughs_from_different_games(client):
+    g1 = create_game(client, title="One")
+    g2 = create_game(client, title="Two")
+    _beat(client, g1, completed_at="2026-01-01", hours_played="10", rating="8")
+    _beat(client, g1, completed_at="2026-06-01", hours_played="5", rating="10")
+    _beat(client, g2, completed_at="2026-07-01")
+    body = page(client, "/stats/2026")
+    assert "3</span><span class=\"label\">playthroughs · 2 different games" in body
+    assert ">15</span><span class=\"label\">hours logged" in body
+    assert "Best of 2026" in body
+
+
+def test_year_switcher_and_default_year(client):
+    g = create_game(client)
+    _beat(client, g, completed_at="2024-02-02")
+    _beat(client, g, completed_at="2025-02-02")
+    body = page(client, "/stats")
+    # nothing in the current year yet -> opens on the latest year with data
+    assert "2025 journal" in body
+    assert 'href="/stats/2024"' in body and 'href="/stats/2025"' in body and 'href="/stats/all"' in body
+    assert "2024 journal" in page(client, "/stats/2024")
+
+
+def test_empty_year_page_still_renders(client):
+    resp = client.get("/stats/1999")
+    assert resp.status_code == 200 and b"Nothing beaten in 1999 yet" in resp.data
+
+
+def test_all_time_has_top_rated_once_per_game_with_replay_count(client):
+    g1 = create_game(client, title="Replayed Favourite")
+    g2 = create_game(client, title="Good Game")
+    _beat(client, g1, completed_at="2024-01-01", rating="8")
+    _beat(client, g1, completed_at="2025-01-01", rating="10")
+    _beat(client, g2, completed_at="2025-03-01", rating="9")
+    body = page(client, "/stats/all")
+    top = body.split('<ol class="top-rated">')[1].split("</ol>")[0]
+    assert top.count("Replayed Favourite") == 1 and "beaten 2×" in top
+    assert top.index("Replayed Favourite") < top.index("Good Game")
+    assert "Beaten by year" in body and 'href="/stats/2024"' in body
+
+
+def test_home_dashboard_shows_recently_beaten_and_hours_this_year(client):
+    from datetime import date
+    g = create_game(client, title="Fresh Clear", platform="SNES")
+    add_copy(client, 1, format="Physical")
+    _beat(client, g, completed_at=date.today().isoformat(), copy_id="1", hours_played="12.5", rating="9")
+    body = page(client, "/")
+    assert "Recently beaten" in body and "Fresh Clear" in body and ">SNES<" in body
+    assert ">12</span><span class=\"label\">hours this year" in body or ">13</span><span class=\"label\">hours this year" in body
+    assert 'class="stat stat-link" href="/stats"' in body
+
+
+def test_platform_badges_classify_by_whole_words():
+    from platforms import platform_info
+    assert platform_info("Sega Genesis")["family"] == "sega"        # not 'nes' -> Nintendo
+    assert platform_info("PlayStation 4") == {"name": "PlayStation 4", "short": "PS4",
+                                              "family": "sony", "device": "console"}
+    assert platform_info("Steam Deck")["device"] == "handheld"
+    assert platform_info("PC")["device"] == "computer"
+    assert platform_info("PC Engine")["family"] == "other"
+    assert platform_info("Some Homebrew Thing")["family"] == "other"
+
+
+def test_best_of_year_lists_each_game_once(client):
+    g = create_game(client, title="Replayed")
+    _beat(client, g, completed_at="2026-01-01", rating="10")
+    _beat(client, g, completed_at="2026-02-01", rating="9")
+    body = page(client, "/stats/2026")
+    best = body.split("Best of 2026")[1].split("</ol>")[0]
+    assert best.count("Replayed") == 1 and "10/10" in best

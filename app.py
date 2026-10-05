@@ -12,6 +12,8 @@ import config
 import db
 import queries as q
 import storage
+import vocab
+from platforms import platform_info
 from hashing import hash_file, hash_bytes
 
 # How many hex characters of the sha256 to use as a stored cover filename.
@@ -202,18 +204,44 @@ def _release_fields():
     )
 
 
+def _method(field="method"):
+    value = request.form.get(field, "").strip()
+    if not value:
+        return None
+    if value not in vocab.METHODS:
+        raise FormError("Pick a method from the list.")
+    return value
+
+
+def _relation():
+    """(related_game_id, relation_kind) from the 'link to another game' fields."""
+    related_game_id = request.form.get("related_game_id", type=int)
+    if not related_game_id:
+        return None, None
+    if not q.get_game(related_game_id):
+        raise FormError("The linked game no longer exists.")
+    kind = request.form.get("relation_kind", "").strip() or "related"
+    if kind not in vocab.RELATION_KINDS:
+        raise FormError("Pick what kind of link this is from the list.")
+    return related_game_id, kind
+
+
 def _completion_fields(game_id):
     copy_id = request.form.get("copy_id", type=int)
     if copy_id:
         c = q.get_copy(copy_id)
         if not c or c["game_id"] != game_id:
             raise FormError("That copy doesn't belong to this game.")
+    played_on = _text("played_on")
     return dict(
         completed_at=_date("completed_at", default=date.today().isoformat()),
         hours_played=_number("hours_played", "Hours played"),
         rating=_rating(),
         notes=_multiline("notes"),
         copy_id=copy_id or None,
+        # Blank = "the copy's own system" (worked out when displayed).
+        played_on_platform_id=q.get_or_create_platform(played_on) if played_on else None,
+        method=_method(),
     )
 
 
@@ -242,12 +270,12 @@ def sniff_image_ext(data):
 # =========================================================== template helpers
 
 def copy_label(format=None, platform=None, region=None, via=None, location=None):
-    """'Source port — Nintendo 64 (USA) via PC · Steam Deck'"""
+    """'Subscription — SNES (USA) through Switch · Closet'"""
     label = f"{format or 'Copy'} — {platform or '?'}"
     if region:
         label += f" ({region})"
     if via:
-        label += f" via {via}"
+        label += f" through {via}"
     if location:
         label += f" · {location}"
     return label
@@ -277,9 +305,36 @@ def register_template_helpers(app):
         return copy_label(c["format"], c["platform_name"], c["region"],
                           c["via_platform_name"], c["location"])
 
+    @app.template_filter("platform_info")
+    def platform_info_filter(name):
+        return platform_info(name)
+
+    @app.template_filter("month_day")
+    def month_day_filter(iso):
+        """'2026-10-04' -> 'Oct 4'."""
+        try:
+            d = date.fromisoformat(iso)
+        except (TypeError, ValueError):
+            return iso or ""
+        return f"{d:%b} {d.day}"
+
+    @app.template_filter("method_label")
+    def method_label_filter(key):
+        return vocab.method_label(key) or ""
+
+    @app.template_filter("relation_phrase")
+    def relation_phrase_filter(kind):
+        return vocab.relation_phrase(kind)
+
     @app.context_processor
     def inject_globals():
-        return {"current_year": date.today().year}
+        return {
+            "current_year": date.today().year,
+            "METHODS": vocab.METHODS,
+            "METHOD_HINTS": vocab.METHOD_HINTS,
+            "RELATION_KINDS": vocab.RELATION_KINDS,
+            "FOLDED_KINDS": vocab.FOLDED_KINDS,
+        }
 
 
 # =================================================================== routes
@@ -328,6 +383,7 @@ def register_routes(app):
             "home.html",
             platform_counts=q.get_platform_counts(),
             recent=q.get_recent_games(limit=8),
+            recently_beaten=q.get_recent_completions(limit=8),
             totals=q.get_totals(),
             health=q.archive_health_summary(),
             saves=q.saves_summary(),
@@ -345,10 +401,16 @@ def register_routes(app):
             tag_id=request.args.get("tag_id", type=int),
             ownership=request.args.get("ownership", "").strip() or None,
             sort=request.args.get("sort", "title"),
+            view=request.args.get("view", "").strip() or None,
         )
+        if filters["view"] not in (None, "flat", "originals", "variants"):
+            filters["view"] = None
+        games, grouped = q.list_games(**filters)
         return render_template(
             "games_list.html",
-            games=q.list_games(**filters),
+            games=games,
+            grouped=grouped,
+            folded_count=sum(len(g["variants"]) for g in games),
             filters=filters,
             platforms=q.get_platforms(),
             locations=q.get_distinct_locations(),
@@ -372,10 +434,12 @@ def register_routes(app):
             return show_form(request.form)
         try:
             with db.transaction():
+                related_game_id, relation_kind = _relation()
                 game_id = q.create_game(
                     title=title,
                     edition_note=_text("edition_note"),
-                    related_game_id=request.form.get("related_game_id", type=int),
+                    related_game_id=related_game_id,
+                    relation_kind=relation_kind,
                     length_hours=_number("length_hours", "Length"),
                 )
                 q.create_release(game_id=game_id,
@@ -420,7 +484,7 @@ def register_routes(app):
             releases_data=releases_data,
             game_copies=q.get_copies_for_game(game_id),
             game_tags=q.get_tags_for_game(game_id),
-            related=q.get_related_games(game_id),
+            links=q.get_game_links(game_id),
             backlog_entry=q.get_backlog_entry_for_game(game_id),
             completions=completions,
             platforms=q.get_platforms(),
@@ -438,13 +502,15 @@ def register_routes(app):
         if not title:
             flash("Title cannot be empty.", "error")
             return to_game(game_id)
-        related_game_id = request.form.get("related_game_id", type=int)
-        if related_game_id == game_id:
-            related_game_id = None
         try:
+            related_game_id, relation_kind = _relation()
+            if related_game_id and (related_game_id == game_id
+                                    or q.link_chain_reaches(related_game_id, game_id)):
+                raise FormError("That link would loop back to this game. "
+                                "Link it to the game it was made from instead.")
             with db.transaction():
                 q.update_game(game_id, title=title, edition_note=_text("edition_note"),
-                              related_game_id=related_game_id,
+                              related_game_id=related_game_id, relation_kind=relation_kind,
                               length_hours=_number("length_hours", "Length"))
         except FormError as e:
             flash(str(e), "error")
@@ -772,7 +838,7 @@ def register_routes(app):
             if upload and upload.filename:
                 if not fields["copy_id"]:
                     raise FormError("To keep a save with this completion, pick which copy "
-                                    "you played it on (Played via).")
+                                    "you used (Copy used).")
                 stored = store_save_upload(upload)
             with db.transaction():
                 completion_id = q.add_completion(game_id, **fields)
@@ -828,11 +894,12 @@ def register_routes(app):
             if not upload or not upload.filename:
                 raise FormError("Choose a save file to upload.")
             completion_id = _completion_choice(copy["game_id"])
+            method = _method()
             stored = store_save_upload(upload)
             stored_name, sha, size = stored
             filename = storage.safe_display_name(upload.filename)
             with db.transaction():
-                q.create_save(copy_id=copy_id, completion_id=completion_id,
+                q.create_save(copy_id=copy_id, completion_id=completion_id, method=method,
                               label=_text("label") or filename, notes=_multiline("notes"),
                               filename=filename, stored_name=stored_name, sha256=sha, size=size)
         except FormError as e:
@@ -870,7 +937,8 @@ def register_routes(app):
                 q.update_save(save_id, copy_id=copy_id,
                               label=_text("label") or save["filename"],
                               notes=_multiline("notes"),
-                              completion_id=_completion_choice(save["game_id"]))
+                              completion_id=_completion_choice(save["game_id"]),
+                              method=_method())
         except FormError as e:
             flash(str(e), "error")
             return to_game(save["game_id"])
@@ -891,10 +959,25 @@ def register_routes(app):
     # ------------------------------------------------------------------ stats
 
     @app.route("/stats")
-    def stats():
+    @app.route("/stats/<int:year>")
+    def stats(year=None):
+        """One year: its numbers, its journal of playthroughs, best of the
+        year, and how you played. Opens on this year, or the most recent
+        year with completions."""
+        years = q.get_completion_years()
+        if year is None:
+            this_year = date.today().year
+            year = this_year if (this_year in years or not years) else years[0]
+        journal = q.get_year_journal(year)
+        return render_template("stats.html", mode="year", year=year, years=years,
+                               journal=journal, summary=q.summarize_journal(journal))
+
+    @app.route("/stats/all")
+    def stats_all():
         data = q.get_stats()
         max_hours = max([row["total_hours"] or 0 for row in data["by_year"]], default=0)
-        return render_template("stats.html", stats=data, max_hours=max_hours)
+        return render_template("stats.html", mode="all", years=q.get_completion_years(),
+                               stats=data, max_hours=max_hours)
 
 
 if __name__ == "__main__":

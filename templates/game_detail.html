@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ game['title'] }} — Retro Archive{% endblock %}
+{% from "_macros.html" import link_fields, method_select with context %}
 
 {% macro copy_fields(prefix, c=None) %}
   <div class="field-row">
@@ -8,8 +9,8 @@
       <input type="text" id="{{ prefix }}-format" name="format" list="format-list" value="{{ c['format'] or '' if c else '' }}" placeholder="Physical, Steam, Digital ROM, Source port, Web, Patched ROM…">
     </div>
     <div class="field-group">
-      <label for="{{ prefix }}-via">Played via <span class="hint">— if not its own platform</span></label>
-      <input type="text" id="{{ prefix }}-via" name="via_platform" list="platform-list" value="{{ c['via_platform_name'] or '' if c else '' }}" placeholder="e.g. Switch, PC">
+      <label for="{{ prefix }}-via">Accessed through <span class="hint">— only if this copy exists only on another system</span></label>
+      <input type="text" id="{{ prefix }}-via" name="via_platform" list="platform-list" value="{{ c['via_platform_name'] or '' if c else '' }}" placeholder="e.g. Switch, for Switch Online">
     </div>
   </div>
   <div class="field-row">
@@ -38,18 +39,26 @@
   </label>
 {% endmacro %}
 
-{% macro played_via_select(prefix, selected=None) %}
-  {% if game_copies %}
-  <div class="field-group">
-    <label for="{{ prefix }}-copy">Played via</label>
-    <select id="{{ prefix }}-copy" name="copy_id">
-      <option value="">— not recorded —</option>
-      {% for gc in game_copies %}
-        <option value="{{ gc['id'] }}" {{ 'selected' if selected == gc['id'] }}>{{ gc|copy_label }}</option>
-      {% endfor %}
-    </select>
+{# How a playthrough happened: which copy, which system, which method. #}
+{% macro play_fields(prefix, copy_selected=None, played_on=None, method=None) %}
+  <div class="field-row">
+    {% if game_copies %}
+    <div class="field-group">
+      <label for="{{ prefix }}-copy">Copy used</label>
+      <select id="{{ prefix }}-copy" name="copy_id">
+        <option value="">— not recorded —</option>
+        {% for gc in game_copies %}
+          <option value="{{ gc['id'] }}" {{ 'selected' if copy_selected == gc['id'] }}>{{ gc|copy_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="field-group">
+      <label for="{{ prefix }}-on">Played on <span class="hint">— blank = the copy's own system</span></label>
+      <input type="text" id="{{ prefix }}-on" name="played_on" list="platform-list" value="{{ played_on or '' }}" placeholder="e.g. Steam Deck, PC, SNES">
+    </div>
   </div>
-  {% endif %}
+  {{ method_select(prefix, method) }}
 {% endmacro %}
 
 {% macro completion_select(prefix, selected=None) %}
@@ -59,7 +68,7 @@
     <select id="{{ prefix }}-comp" name="completion_id">
       <option value="">— none —</option>
       {% for comp in completions %}
-        <option value="{{ comp['id'] }}" {{ 'selected' if selected == comp['id'] }}>Beaten {{ comp['completed_at'] }}{% if comp['via_label'] %} · via {{ comp['via_label'] }}{% endif %}</option>
+        <option value="{{ comp['id'] }}" {{ 'selected' if selected == comp['id'] }}>Beaten {{ comp['completed_at'] }}{% if comp['played_on_name'] %} · on {{ comp['played_on_name'] }}{% endif %}{% if comp['method'] %} · {{ comp['method']|method_label }}{% endif %}</option>
       {% endfor %}
     </select>
   </div>
@@ -117,10 +126,34 @@
       </form>
     </div>
 
-    {% if related %}
-      <p class="muted related-line">Related:
-        {% for r in related %}<a href="{{ url_for('game_detail', game_id=r['id']) }}">{{ r['title'] }}{% if r['edition_note'] %} — {{ r['edition_note'] }}{% endif %}</a>{{ ' · ' if not loop.last }}{% endfor %}
+    {% if links.parent %}
+      <p class="related-line"><span class="muted">{{ links.parent['relation_kind']|relation_phrase }}</span>
+        <a href="{{ url_for('game_detail', game_id=links.parent['id']) }}">{{ links.parent['title'] }}{% if links.parent['edition_note'] %} — {{ links.parent['edition_note'] }}{% endif %}</a>
       </p>
+    {% endif %}
+    {% set variants = links.children|selectattr('relation_kind', 'in', FOLDED_KINDS)|list %}
+    {% set others = links.children|rejectattr('relation_kind', 'in', FOLDED_KINDS)|list %}
+    {% if others %}
+      <p class="related-line muted">
+        {% for r in others %}{% if r['relation_kind'] and r['relation_kind'] != 'related' %}{{ RELATION_KINDS[r['relation_kind']] }}:{% else %}Related:{% endif %}
+          <a href="{{ url_for('game_detail', game_id=r['id']) }}">{{ r['title'] }}{% if r['edition_note'] %} — {{ r['edition_note'] }}{% endif %}</a>{{ ' · ' if not loop.last }}{% endfor %}
+      </p>
+    {% endif %}
+    {% if variants %}
+      <div class="variants-box">
+        <div class="saves-head">Hacks &amp; mods <span class="muted">({{ variants|length }})</span></div>
+        <ul class="variant-list">
+          {% for v in variants %}
+            <li>
+              <a href="{{ url_for('game_detail', game_id=v['id']) }}">{{ v['title'] }}</a>{% if v['edition_note'] %} <span class="muted">— {{ v['edition_note'] }}</span>{% endif %}
+              {% if (v['edition_note'] or '')|lower != RELATION_KINDS[v['relation_kind']]|lower %}<span class="muted variant-kind">{{ RELATION_KINDS[v['relation_kind']] }}</span>{% endif %}
+              {% if v['owned'] %}<span class="badge">Owned</span>{% elif v['playable'] %}<span class="badge">Playable</span>{% endif %}
+              {% if v['in_backlog'] %}<span class="badge backlog">Backlog</span>{% endif %}
+              {% if v['completed'] %}<span class="badge beaten">Beaten</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
     {% endif %}
 
     <div class="actions-row">
@@ -156,14 +189,14 @@
             <input type="number" id="rating" name="rating" min="1" max="10">
           </div>
         </div>
-        {{ played_via_select('new-comp', game_copies[0]['id'] if game_copies|length == 1 else None) }}
+        {{ play_fields('new-comp', game_copies[0]['id'] if game_copies|length == 1 else None) }}
         <div class="field-group">
           <label for="c-notes">Notes</label>
           <textarea id="c-notes" name="notes"></textarea>
         </div>
         {% if game_copies %}
         <fieldset class="save-attach">
-          <legend>Keep the save from this run <span class="hint">— optional; stored with the copy picked under “Played via”</span></legend>
+          <legend>Keep the save from this run <span class="hint">— optional; stored with the copy picked under “Copy used”</span></legend>
           <div class="field-row">
             <div class="field-group">
               <label for="c-save">Save file</label>
@@ -197,17 +230,7 @@
             <input type="number" id="e-length" name="length_hours" step="0.5" min="0" value="{{ '%g'|format(game['length_hours']) if game['length_hours'] is not none else '' }}">
           </div>
         </div>
-        {% if all_games %}
-        <div class="field-group">
-          <label for="e-related">Related game</label>
-          <select id="e-related" name="related_game_id">
-            <option value="">— none —</option>
-            {% for g in all_games %}
-              <option value="{{ g['id'] }}" {{ 'selected' if game['related_game_id'] == g['id'] }}>{{ g['title'] }}{% if g['edition_note'] %} — {{ g['edition_note'] }}{% endif %}</option>
-            {% endfor %}
-          </select>
-        </div>
-        {% endif %}
+        {{ link_fields('e', all_games, game['relation_kind'], game['related_game_id']) }}
         <button type="submit">Save</button>
       </form>
     </details>
@@ -267,7 +290,7 @@
             <div class="copy-head">
               <span class="own-tag {{ 'owned' if c['is_owned'] else 'playable' }}">{{ 'Owned' if c['is_owned'] else 'Playable' }}</span>
               <span class="copy-what">{{ c['format'] or 'Copy' }}</span>
-              {% if c['via_platform_name'] %}<span class="copy-where">via {{ c['via_platform_name'] }}</span>{% endif %}
+              {% if c['via_platform_name'] %}<span class="copy-where">through {{ c['via_platform_name'] }}</span>{% endif %}
               {% if c['location'] %}<span class="copy-where">· {{ c['location'] }}</span>
               {% elif c['path'] %}<span class="copy-where">· Local archive</span>{% endif %}
             </div>
@@ -316,7 +339,7 @@
                           <a class="btn small secondary" href="{{ url_for('save_download', save_id=sv['id']) }}">Download</a>
                         {% endif %}
                         <span class="save-label">{{ sv['label'] }}</span>
-                        <span class="muted save-meta">{{ sv['filename'] }} · {{ sv['size']|filesize }} · added {{ sv['uploaded_at'][:10] }}{% if sv['completion_date'] %} · from the {{ sv['completion_date'] }} completion{% endif %}</span>
+                        <span class="muted save-meta">{{ sv['filename'] }} · {{ sv['size']|filesize }} · added {{ sv['uploaded_at'][:10] }}{% if sv['effective_method'] %} · {{ sv['effective_method']|method_label }}{% endif %}{% if sv['completion_date'] %} · from the {{ sv['completion_date'] }} completion{% endif %}</span>
                       </div>
                       {% if sv['notes'] %}<div class="save-notes prewrap">{{ sv['notes'] }}</div>{% endif %}
                       <details class="quiet-panel">
@@ -339,6 +362,7 @@
                             {% endif %}
                           </div>
                           {{ completion_select('sv' ~ sv['id'], sv['completion_id']) }}
+                          {{ method_select('sv' ~ sv['id'], sv['method'], label="Method this save is for", none_label="— same as its completion / not recorded —") }}
                           <div class="field-group">
                             <label for="sv{{ sv['id'] }}-notes">Notes</label>
                             <textarea id="sv{{ sv['id'] }}-notes" name="notes">{{ sv['notes'] or '' }}</textarea>
@@ -367,6 +391,7 @@
                     </div>
                   </div>
                   {{ completion_select('ns' ~ c['id']) }}
+                  {{ method_select('ns' ~ c['id'], label="Method this save is for", none_label="— same as its completion / not recorded —") }}
                   <div class="field-group">
                     <label for="ns{{ c['id'] }}-notes">Notes</label>
                     <textarea id="ns{{ c['id'] }}-notes" name="notes" placeholder="Emulator/core, slot, what's in it…"></textarea>
@@ -441,8 +466,10 @@
           <strong>{{ comp['completed_at'] }}</strong>
           {% if comp['hours_played'] is not none %}<span>· {{ comp['hours_played']|hours }}</span>{% endif %}
           {% if comp['rating'] %}<span>· {{ comp['rating'] }}/10</span>{% endif %}
-          {% if comp['via_label'] %}<span class="muted">· via {{ comp['via_label'] }}</span>{% endif %}
+          {% if comp['played_on_name'] %}<span>· on {{ comp['played_on_name'] }}</span>{% endif %}
+          {% if comp['method'] %}<span class="method-tag">{{ comp['method']|method_label }}</span>{% endif %}
         </div>
+        {% if comp['via_label'] %}<div class="muted completion-copy">Copy: {{ comp['via_label'] }}</div>{% endif %}
         {% if comp['notes'] %}<div class="copy-notes prewrap">{{ comp['notes'] }}</div>{% endif %}
         {% for sv in saves_by_completion.get(comp['id'], []) %}
           <div class="copy-line completion-save">
@@ -459,7 +486,7 @@
               <div class="field-group"><label for="cp{{ comp['id'] }}-hours">Hours</label><input type="number" id="cp{{ comp['id'] }}-hours" name="hours_played" step="0.1" min="0" value="{{ '%g'|format(comp['hours_played']) if comp['hours_played'] is not none else '' }}"></div>
               <div class="field-group"><label for="cp{{ comp['id'] }}-rating">Rating</label><input type="number" id="cp{{ comp['id'] }}-rating" name="rating" min="1" max="10" value="{{ comp['rating'] or '' }}"></div>
             </div>
-            {{ played_via_select('cp' ~ comp['id'], comp['copy_id']) }}
+            {{ play_fields('cp' ~ comp['id'], comp['copy_id'], comp['played_on_recorded'], comp['method']) }}
             <div class="field-group"><label for="cp{{ comp['id'] }}-notes">Notes</label><textarea id="cp{{ comp['id'] }}-notes" name="notes">{{ comp['notes'] or '' }}</textarea></div>
             <button type="submit" class="small">Save</button>
           </form>

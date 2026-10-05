@@ -1,4 +1,4 @@
--- Retro Archive schema, version 2 (tracked in PRAGMA user_version; see db.py).
+-- Retro Archive schema, version 3 (tracked in PRAGMA user_version; see db.py).
 -- This file always describes the LATEST schema and is only run for brand-new
 -- databases; existing ones are upgraded step by step by db.MIGRATIONS.
 --
@@ -19,13 +19,16 @@ CREATE TABLE IF NOT EXISTS platforms (
     name    TEXT NOT NULL UNIQUE COLLATE NOCASE
 );
 
--- A remake/rework is a *different* game row, cross-linked via
--- related_game_id (shown in both directions on the detail page).
+-- A remake, ROM hack, mod... is a *different* game row, linked to the game
+-- it derives from via related_game_id + relation_kind (see vocab.py):
+-- "this game is a <relation_kind> of <related_game_id>". ROM hacks, mods and
+-- fan games are folded under their original in the games list.
 CREATE TABLE IF NOT EXISTS games (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     title             TEXT NOT NULL,
     edition_note      TEXT,               -- "1996 Original", "2026 Remake", ...
     related_game_id   INTEGER,
+    relation_kind     TEXT,               -- 'related','rom_hack','mod','fan_game','remake','remaster'
     length_hours      REAL,               -- typical/estimated length (HLTB-style)
     cover_image_path  TEXT,               -- hash-named file in data/assets/covers
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -54,7 +57,8 @@ CREATE TABLE IF NOT EXISTS copies (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     release_id         INTEGER NOT NULL,
     format             TEXT COLLATE NOCASE,  -- "Physical", "Steam", "Source port", "Web", ...
-    via_platform_id    INTEGER,              -- played through a different platform
+    via_platform_id    INTEGER,              -- "accessed through": only for copies that exist
+                                             -- only on another system (e.g. Switch Online)
     location           TEXT COLLATE NOCASE,  -- "NAS", "Closet box 3", ...
     path               TEXT,                 -- only when the app can read the file
     url                TEXT,                 -- web-playable link, store page, project page
@@ -96,18 +100,22 @@ CREATE TABLE IF NOT EXISTS backlog (
     FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
 );
 
--- copy_id records which copy the run was actually played on ("via").
--- Optional; cleared (not cascaded) if that copy record is later removed.
+-- How a playthrough happened: which copy (what you have), which system it
+-- was played on, and the method (vocab.METHODS). All optional. When
+-- played_on_platform_id is NULL, the copy's own system is assumed.
 CREATE TABLE IF NOT EXISTS completions (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     game_id          INTEGER NOT NULL,
     copy_id          INTEGER,
+    played_on_platform_id INTEGER,
+    method           TEXT,
     completed_at     TEXT NOT NULL,       -- 'YYYY-MM-DD'
     hours_played     REAL,
     rating           INTEGER CHECK (rating IS NULL OR rating BETWEEN 1 AND 10),
     notes            TEXT,
     FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-    FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE SET NULL
+    FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE SET NULL,
+    FOREIGN KEY (played_on_platform_id) REFERENCES platforms(id)
 );
 
 -- Save vault: snapshots of save files you want to keep ("100% file",
@@ -125,11 +133,13 @@ CREATE TABLE IF NOT EXISTS saves (
     stored_name     TEXT NOT NULL,       -- hash-named file in data/assets/saves
     sha256          TEXT NOT NULL,
     size            INTEGER NOT NULL,
+    method          TEXT,                -- vocab.METHODS; for saves not tied to a completion
     uploaded_at     TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE CASCADE,
     FOREIGN KEY (completion_id) REFERENCES completions(id) ON DELETE SET NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_games_related        ON games(related_game_id);
 CREATE INDEX IF NOT EXISTS idx_releases_game        ON releases(game_id);
 CREATE INDEX IF NOT EXISTS idx_releases_platform    ON releases(platform_id);
 CREATE INDEX IF NOT EXISTS idx_copies_release       ON copies(release_id);

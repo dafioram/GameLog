@@ -454,7 +454,7 @@ details.action-panel > summary::marker { content: ""; }
 .year-bars { margin-top: 6px; }
 .year-bar-row {
   display: grid;
-  grid-template-columns: 60px 1fr 70px;
+  grid-template-columns: 60px 1fr 130px;
   align-items: center;
   gap: 10px;
   padding: 6px 0;
@@ -584,3 +584,106 @@ fieldset.save-attach { border: 1px dashed var(--line); border-radius: var(--radi
 fieldset.save-attach legend { font-size: 0.85rem; color: var(--ink); padding: 0 4px; }
 .completion-save { margin-top: 4px; }
 .saves-summary { margin: 12px 0 0; font-size: 0.9rem; }
+
+/* ---------------------------------------------------------- game links, hacks & mods */
+
+.relation-line { font-size: 0.85rem; margin-top: 1px; }
+.backlog-title .relation-line { display: block; }
+details.variants { grid-column: 2 / -1; margin: 2px 0 0; }
+details.variants > summary { cursor: pointer; color: var(--accent); font-size: 0.85rem; width: fit-content; }
+.variant-list { list-style: none; margin: 6px 0 2px; padding: 0 0 0 12px; border-left: 3px solid var(--brass-soft); }
+.variant-list li { padding: 3px 0; font-size: 0.9rem; }
+.variant-kind { font-size: 0.78rem; margin-left: 4px; }
+.variant-list .badge { margin-left: 4px; }
+.variants-box { margin: 8px 0 4px; }
+fieldset.link-fields { border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px 12px 4px; margin: 0 0 12px; }
+fieldset.link-fields legend { font-size: 0.85rem; color: var(--ink); padding: 0 4px; }
+.link-fields .link-kind { flex: 0 1 190px; }
+
+/* ---------------------------------------------------------- how you played */
+
+.method-tag { display: inline-block; padding: 0 8px; border: 1px solid var(--accent); color: var(--accent); border-radius: 10px; font-size: 0.76rem; margin-left: 4px; }
+.completion-copy { font-size: 0.82rem; margin-top: 2px; }
+.how-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 640px) {
+  .how-grid { grid-template-columns: 1fr; }
+  details.variants { grid-column: 1 / -1; }
+}
+
+/* ---------------------------------------------------------- platform badges
+   Original design: short name + family tint + generic device glyph. */
+
+:root {
+  --pb-nintendo: #9E453D; --pb-sony: #36578C; --pb-sega: #2C6C8A;
+  --pb-microsoft: #4D7A3C; --pb-atari: #87592B; --pb-pc: #4A4E57; --pb-other: #6B628A;
+}
+.pbadge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px 1px 6px; border-radius: 4px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; line-height: 1.5;
+  color: #F7F3E8; background: var(--pb-other); white-space: nowrap; vertical-align: middle;
+}
+.pbadge .pb-glyph { flex: none; opacity: 0.9; }
+.pb-nintendo { background: var(--pb-nintendo); }
+.pb-sony { background: var(--pb-sony); }
+.pb-sega { background: var(--pb-sega); }
+.pb-microsoft { background: var(--pb-microsoft); }
+.pb-atari { background: var(--pb-atari); }
+.pb-pc { background: var(--pb-pc); }
+.pb-full { margin-left: 4px; }
+
+.rating-pill {
+  display: inline-block; padding: 0 7px; border-radius: 10px;
+  background: var(--brass-soft); color: #5E4712; border: 1px solid var(--brass);
+  font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.rating-pill.big { font-size: 0.9rem; padding: 1px 9px; }
+
+/* ---------------------------------------------------------- stats: years & journal */
+
+.year-switch { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.year-switch a {
+  padding: 3px 12px; border: 1px solid var(--line); border-radius: 14px;
+  color: var(--ink); font-size: 0.88rem; font-variant-numeric: tabular-nums; background: var(--paper-raised);
+}
+.year-switch a:hover { text-decoration: none; border-color: var(--accent); }
+.year-switch a.active { background: var(--ink); border-color: var(--ink); color: var(--paper-raised); }
+
+.journal { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.journal-row {
+  display: grid; grid-template-columns: 52px 1fr auto 150px 48px 56px;
+  gap: 10px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line);
+}
+.j-date { color: var(--ink-soft); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.j-title .relation-line { display: block; }
+.j-method { font-size: 0.85rem; }
+.j-hours { text-align: right; font-size: 0.88rem; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.j-rating { text-align: right; }
+
+.stats-pair { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; align-items: start; }
+.stats-pair .how-grid { grid-template-columns: 1fr; gap: 12px; }
+.best-list { list-style: none; padding: 0; margin: 0; }
+.year-bar-row a { color: var(--ink); }
+
+.top-rated { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.top-row { display: grid; grid-template-columns: 26px 36px 1fr auto; gap: 12px; align-items: center; padding: 7px 2px; border-bottom: 1px solid var(--line); }
+.top-rank { font-family: var(--font-display); color: var(--brass); font-size: 1.05rem; text-align: right; }
+.top-cover { width: 36px; height: 48px; object-fit: cover; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); display: block; }
+.top-meta { display: block; font-size: 0.8rem; }
+
+/* ---------------------------------------------------------- home dashboard */
+
+.stat-link { color: inherit; }
+.stat-link:hover { text-decoration: none; }
+.stat-link:hover .label { color: var(--accent); }
+.thumb-meta { display: flex; flex-direction: column; gap: 3px; align-items: center; margin-top: 4px; font-size: 0.72rem; }
+
+@media (max-width: 640px) {
+  .journal-row { grid-template-columns: 46px 1fr auto; row-gap: 4px; }
+  .journal-row .j-system, .journal-row .j-method { grid-column: 2; }
+  .journal-row .j-method { grid-row: 3; }
+  .journal-row .j-hours { grid-column: 3; grid-row: 1; }
+  .journal-row .j-rating { grid-column: 3; grid-row: 2; }
+  .journal-row .j-system { grid-row: 2; }
+  .stats-pair { grid-template-columns: 1fr; }
+}

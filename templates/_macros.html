@@ -1,0 +1,62 @@
+{# Shared form pieces. Import with:
+   {% from "_macros.html" import link_fields, method_select with context %} #}
+
+{# "This game is a [kind] of [game]" — used by Add game and Edit game. #}
+{% macro link_fields(prefix, all_games, kind=None, target=None) %}
+  {% if all_games %}
+  <fieldset class="link-fields">
+    <legend>Link to another game <span class="hint">— optional</span></legend>
+    <div class="field-row">
+      <div class="field-group link-kind">
+        <label for="{{ prefix }}-kind">This game is a…</label>
+        <select id="{{ prefix }}-kind" name="relation_kind">
+          {% for key, label in RELATION_KINDS.items() %}
+            <option value="{{ key }}" {{ 'selected' if (kind or 'related') == key }}>{{ label if key == 'related' else label ~ ' of' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field-group">
+        <label for="{{ prefix }}-related">…this game</label>
+        <select id="{{ prefix }}-related" name="related_game_id">
+          <option value="">— none —</option>
+          {% for g in all_games %}
+            <option value="{{ g['id'] }}" {{ 'selected' if target and target|string == g['id']|string }}>{{ g['title'] }}{% if g['edition_note'] %} — {{ g['edition_note'] }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <p class="hint hint-block">ROM hacks, mods and fan games are listed under their original in the games list. Remakes and remasters stay in the list as their own games.</p>
+  </fieldset>
+  {% endif %}
+{% endmacro %}
+
+{# The fixed list of play methods. #}
+{% macro method_select(prefix, selected=None, label="Method", none_label="— not recorded —") %}
+  <div class="field-group">
+    <label for="{{ prefix }}-method">{{ label }}</label>
+    <select id="{{ prefix }}-method" name="method">
+      <option value="">{{ none_label }}</option>
+      {% for key, text in METHODS.items() %}
+        <option value="{{ key }}" {{ 'selected' if selected == key }}>{{ text }} — {{ METHOD_HINTS[key] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+{% endmacro %}
+
+{# Platform badge: short name, family tint, generic device glyph (original
+   artwork, not manufacturer logos). #}
+{% macro device_glyph(kind) -%}
+  {%- if kind == 'handheld' -%}
+  <svg class="pb-glyph" viewBox="0 0 10 14" width="8" height="11" aria-hidden="true"><rect x="0.75" y="0.75" width="8.5" height="12.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="2.4" y="2.3" width="5.2" height="4.2" fill="currentColor" opacity=".55"/><circle cx="6.7" cy="10" r="0.9" fill="currentColor"/><path d="M2.3 10h2.3M3.45 8.85v2.3" stroke="currentColor" stroke-width="1"/></svg>
+  {%- elif kind == 'computer' -%}
+  <svg class="pb-glyph" viewBox="0 0 14 12" width="12" height="10" aria-hidden="true"><rect x="0.75" y="0.75" width="12.5" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5 11.25h4M7 8.75v2.5" stroke="currentColor" stroke-width="1.3"/></svg>
+  {%- else -%}
+  <svg class="pb-glyph" viewBox="0 0 16 10" width="14" height="9" aria-hidden="true"><rect x="0.75" y="1" width="14.5" height="8" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.2 3.5v3M2.7 5h3" stroke="currentColor" stroke-width="1.2"/><circle cx="11" cy="4.2" r="0.9" fill="currentColor"/><circle cx="12.7" cy="5.8" r="0.9" fill="currentColor"/></svg>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro platform_badge(name) -%}
+  {%- if name -%}{%- set p = name|platform_info -%}
+  <span class="pbadge pb-{{ p.family }}" title="{{ p.name }}">{{ device_glyph(p.device) }}<span class="pb-short">{{ p.short }}</span></span>
+  {%- endif -%}
+{%- endmacro %}

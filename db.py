@@ -19,7 +19,7 @@ DB_FILENAME = DEFAULT_DB_PATH.name
 # changes after this point. Each migration takes the connection and brings
 # the database from (version - 1) to version. schema.sql always describes
 # the *latest* schema and is only executed for brand-new databases.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _migrate_2_save_vault(db):
@@ -43,9 +43,23 @@ def _migrate_2_save_vault(db):
     db.execute("CREATE INDEX IF NOT EXISTS idx_saves_stored_name ON saves(stored_name)")
 
 
+def _migrate_3_links_and_play_method(db):
+    """Typed game links (ROM hack / remake / ...) and how a playthrough was
+    played. Additive only: new empty columns; existing links become
+    'related' so they behave exactly as before."""
+    db.execute("ALTER TABLE games ADD COLUMN relation_kind TEXT")
+    db.execute("UPDATE games SET relation_kind = 'related' WHERE related_game_id IS NOT NULL")
+    db.execute("ALTER TABLE completions ADD COLUMN played_on_platform_id INTEGER "
+               "REFERENCES platforms(id)")
+    db.execute("ALTER TABLE completions ADD COLUMN method TEXT")
+    db.execute("ALTER TABLE saves ADD COLUMN method TEXT")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_games_related ON games(related_game_id)")
+
+
 # version -> function bringing the database from (version - 1) to version.
 MIGRATIONS = {
     2: _migrate_2_save_vault,
+    3: _migrate_3_links_and_play_method,
 }
 
 

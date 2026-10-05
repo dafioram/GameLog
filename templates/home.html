@@ -1,18 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Retro Archive{% endblock %}
+{% from "_macros.html" import platform_badge %}
 {% block content %}
 
 <div class="stat-row">
-  <div class="stat"><span class="n">{{ totals.games }}</span><span class="label">games catalogued</span></div>
+  <div class="stat"><span class="n">{{ totals.games }}</span><span class="label">games catalogued{% if totals.variants %} <br>+ {{ totals.variants }} hack{{ '' if totals.variants == 1 else 's' }} &amp; mods{% endif %}</span></div>
   <div class="stat"><span class="n">{{ totals.owned }}</span><span class="label">owned</span></div>
   <div class="stat"><span class="n">{{ totals.playable }}</span><span class="label">playable</span></div>
   <div class="stat"><span class="n">{{ totals.backlog }}</span><span class="label">in backlog</span></div>
-  <div class="stat"><span class="n">{{ totals.completed_this_year }}</span><span class="label">beaten this year</span></div>
+  <a class="stat stat-link" href="{{ url_for('stats') }}"><span class="n">{{ totals.completed_this_year }}</span><span class="label">beaten this year</span></a>
+  <a class="stat stat-link" href="{{ url_for('stats') }}"><span class="n">{{ '%.0f'|format(totals.hours_this_year or 0) }}</span><span class="label">hours this year</span></a>
 </div>
 
 <div class="actions-row">
   <a class="btn" href="{{ url_for('game_new') }}">Add a game</a>
 </div>
+
+{% if recently_beaten %}
+<div class="card">
+  <div class="section-title"><h2>Recently beaten</h2><a href="{{ url_for('stats') }}">This year's journal</a></div>
+  <div class="cover-strip">
+    {% for e in recently_beaten %}
+      <div class="cover-thumb">
+        <a href="{{ url_for('game_detail', game_id=e['game_id']) }}">
+          {% if e['cover_image_path'] %}
+            <img src="{{ url_for('cover_file', filename=e['cover_image_path']) }}" alt="{{ e['title'] }} cover" loading="lazy">
+          {% else %}
+            <span class="placeholder">{{ e['title'] }}</span>
+          {% endif %}
+          <div class="title">{{ e['title'] }}</div>
+        </a>
+        <div class="thumb-meta">{{ platform_badge(e['played_on_name']) }}<span class="muted">{{ e['completed_at']|month_day }}{% if e['rating'] %} · {{ e['rating'] }}/10{% endif %}</span></div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <div class="card">
   <div class="section-title"><h2>Shelf</h2><a href="{{ url_for('games_list') }}">View all games</a></div>

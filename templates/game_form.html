@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Add a game — Retro Archive{% endblock %}
+{% from "_macros.html" import link_fields with context %}
 {% block content %}
 
 <h2>Add a game</h2>
@@ -38,18 +39,9 @@
       <input type="text" id="tags" name="tags" list="tag-list" placeholder="JRPG, Time travel" value="{{ form.get('tags','') }}">
       <datalist id="tag-list">{% for t in tags %}<option value="{{ t['name'] }}">{% endfor %}</datalist>
     </div>
-    {% if all_games %}
-    <div class="field-group">
-      <label for="related_game_id">Related to <span class="hint">— e.g. the original, for a remake</span></label>
-      <select id="related_game_id" name="related_game_id">
-        <option value="">— none —</option>
-        {% for g in all_games %}
-          <option value="{{ g['id'] }}" {{ 'selected' if form.get('related_game_id') == g['id']|string }}>{{ g['title'] }}{% if g['edition_note'] %} — {{ g['edition_note'] }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </div>
-    {% endif %}
   </div>
+
+  {{ link_fields('n', all_games, form.get('relation_kind'), form.get('related_game_id')) }}
 
   <hr class="rule">
   <h3>First release</h3>
