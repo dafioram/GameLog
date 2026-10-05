@@ -11,7 +11,7 @@
         <label for="{{ prefix }}-kind">This game is a…</label>
         <select id="{{ prefix }}-kind" name="relation_kind">
           {% for key, label in RELATION_KINDS.items() %}
-            <option value="{{ key }}" {{ 'selected' if (kind or 'related') == key }}>{{ label if key == 'related' else label ~ ' of' }}</option>
+            <option value="{{ key }}" {{ 'selected' if (kind or 'related') == key }}>{{ key|relation_phrase }}</option>
           {% endfor %}
         </select>
       </div>
@@ -25,7 +25,7 @@
         </select>
       </div>
     </div>
-    <p class="hint hint-block">ROM hacks, mods and fan games are listed under their original in the games list. Remakes and remasters stay in the list as their own games.</p>
+    <p class="hint hint-block">ROM hacks, mods, fan games and DLC are listed under their original in the games list. Remakes and remasters stay in the list as their own games.</p>
   </fieldset>
   {% endif %}
 {% endmacro %}

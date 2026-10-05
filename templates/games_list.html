@@ -3,7 +3,7 @@
 {% block content %}
 
 <div class="section-title">
-  <h2>Games {% if games %}<span class="muted">({{ games|length }}{% if grouped and folded_count %} + {{ folded_count }} hacks &amp; mods{% endif %})</span>{% endif %}</h2>
+  <h2>Games {% if games %}<span class="muted">({{ games|length }}{% if grouped and folded_count %} + {{ folded_count }} hacks, mods &amp; DLC{% endif %})</span>{% endif %}</h2>
   <a class="btn" href="{{ url_for('game_new') }}">Add a game</a>
 </div>
 
@@ -61,12 +61,12 @@
   </div>
 
   <div class="field">
-    <label for="f-view">Hacks &amp; mods</label>
+    <label for="f-view">Hacks, mods &amp; DLC</label>
     <select id="f-view" name="view">
       <option value="" {{ 'selected' if not filters.view }}>Grouped under original</option>
       <option value="flat" {{ 'selected' if filters.view == 'flat' }}>Listed separately</option>
       <option value="originals" {{ 'selected' if filters.view == 'originals' }}>Hidden</option>
-      <option value="variants" {{ 'selected' if filters.view == 'variants' }}>Only hacks &amp; mods</option>
+      <option value="variants" {{ 'selected' if filters.view == 'variants' }}>Only hacks, mods &amp; DLC</option>
     </select>
   </div>
 
@@ -90,7 +90,7 @@
 </form>
 
 {% if filters.q %}<p class="muted">Search: “{{ filters.q }}”</p>{% endif %}
-{% if not grouped and not filters.view %}<p class="muted hint-block">Filters are on, so hacks &amp; mods are listed as their own rows.</p>{% endif %}
+{% if not grouped and not filters.view %}<p class="muted hint-block">Filters are on, so hacks, mods &amp; DLC are listed as their own rows.</p>{% endif %}
 
 {% if games %}
   <div class="ledger">
@@ -127,9 +127,8 @@
           {% if g['completed'] %}<span class="badge beaten">Beaten</span>{% endif %}
         </div>
         {% if g['variants'] %}
-          {% set kinds = g['variants']|map(attribute='relation_kind')|unique|list %}
           <details class="variants">
-            <summary>+{{ g['variants']|length }} {% if kinds == ['rom_hack'] %}ROM hack{{ '' if g['variants']|length == 1 else 's' }}{% else %}hack{{ '' if g['variants']|length == 1 else 's' }} &amp; mods{% endif %}</summary>
+            <summary>{{ g['variants']|variants_summary }}</summary>
             <ul class="variant-list">
               {% for v in g['variants'] %}
                 <li>

@@ -939,7 +939,7 @@ def test_rom_hacks_fold_under_their_original_in_the_games_list(client):
     assert "Super Metroid Redesign" not in tops               # folded...
     assert "Super Metroid" in tops and "Metroid: Zero Mission" in tops   # ...remakes are not
     assert "+1 ROM hack" in body and "Super Metroid Redesign" in body    # ...but listed under it
-    assert "+ 1 hacks &amp; mods" in body                      # header count
+    assert "+ 1 hacks, mods &amp; DLC" in body                 # header count
 
     # original's page lists it; the hack's page says what it's a hack of
     assert "Hacks &amp; mods" in page(client, f"/games/{sm}")
@@ -969,11 +969,12 @@ def test_a_hack_of_a_hack_folds_under_the_original(client):
     assert "+2 ROM hacks" in body
 
 
-def test_mixed_variant_kinds_are_labelled_hacks_and_mods(client):
+def test_mixed_variant_kinds_are_counted_by_kind(client):
     g = create_game(client, title="Doom")
     create_game(client, title="Sigil", related_game_id=str(g), relation_kind="mod")
     create_game(client, title="Freedoom-ish Hack", related_game_id=str(g), relation_kind="rom_hack")
-    assert "+2 hacks &amp; mods" in page(client, "/games")
+    create_game(client, title="Doom: Expansion", related_game_id=str(g), relation_kind="dlc")
+    assert "+3 · 1 ROM hack, 1 mod, 1 DLC" in page(client, "/games")
 
 
 def test_links_cannot_loop(client):
@@ -1004,7 +1005,7 @@ def test_home_counts_hacks_separately(client):
     sm = create_game(client, title="Super Metroid")
     create_game(client, title="Redesign", related_game_id=str(sm), relation_kind="rom_hack")
     body = page(client, "/")
-    assert re.search(r'<span class="n">1</span><span class="label">games catalogued <br>\+ 1 hack ', body)
+    assert re.search(r'<span class="n">1</span><span class="label">games catalogued <br>\+ 1 hacks, mods &amp; DLC', body)
 
 
 # ================================================= how a playthrough happened
@@ -1176,3 +1177,26 @@ def test_best_of_year_lists_each_game_once(client):
     body = page(client, "/stats/2026")
     best = body.split("Best of 2026")[1].split("</ol>")[0]
     assert best.count("Replayed") == 1 and "10/10" in best
+
+
+def test_dlc_folds_under_its_base_game_and_reads_dlc_for(client):
+    base = create_game(client, title="Bloodborne", platform="PlayStation 4")
+    dlc = create_game(client, title="Bloodborne: The Old Hunters", platform="PlayStation 4",
+                      related_game_id=str(base), relation_kind="dlc")
+    body = page(client, "/games")
+    assert _top_level_titles(body) == ["Bloodborne"] and "+1 DLC" in body
+    assert "DLC for" in page(client, f"/games/{dlc}")
+    base_page = page(client, f"/games/{base}")
+    assert "DLC &amp; expansions" in base_page and "Hacks &amp; mods" not in base_page
+
+    client.post(f"/games/{dlc}/backlog/add")
+    assert "DLC for Bloodborne" in page(client, "/backlog")
+    client.post(f"/games/{dlc}/complete", data={"completed_at": "2026-02-02", "rating": "10"})
+    assert "DLC for Bloodborne" in page(client, "/stats/2026")
+
+
+def test_edit_form_offers_dlc_kind(client):
+    g = create_game(client, title="Base")
+    other = create_game(client, title="Expansion")
+    body = page(client, f"/games/{other}")
+    assert '<option value="dlc"' in body and ">DLC for</option>" in body

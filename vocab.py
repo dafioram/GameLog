@@ -36,11 +36,31 @@ RELATION_KINDS = {
     "fan_game": "Fan game",
     "remake": "Remake",
     "remaster": "Remaster",
+    "dlc": "DLC / expansion",
+}
+
+# How a link reads in a sentence: "<phrase> <other game>".
+RELATION_PHRASES = {
+    "related": "Related to",
+    "rom_hack": "ROM hack of",
+    "mod": "Mod of",
+    "fan_game": "Fan game of",
+    "remake": "Remake of",
+    "remaster": "Remaster of",
+    "dlc": "DLC for",
+}
+
+# Singular / plural nouns for counting folded games ("+2 ROM hacks").
+KIND_NOUNS = {
+    "rom_hack": ("ROM hack", "ROM hacks"),
+    "mod": ("mod", "mods"),
+    "fan_game": ("fan game", "fan games"),
+    "dlc": ("DLC", "DLC"),
 }
 
 # Kinds folded under their original in the (unfiltered) games list: they're
 # their own games for backlog/completions, but would swamp the list.
-FOLDED_KINDS = ("rom_hack", "mod", "fan_game")
+FOLDED_KINDS = ("rom_hack", "mod", "fan_game", "dlc")
 
 
 def method_label(key):
@@ -48,7 +68,22 @@ def method_label(key):
 
 
 def relation_phrase(kind):
-    """'ROM hack of', 'Remake of', 'Related to'."""
-    if kind in (None, "", "related"):
-        return "Related to"
-    return f"{RELATION_KINDS.get(kind, 'Related')} of"
+    """'ROM hack of', 'DLC for', 'Related to'."""
+    return RELATION_PHRASES.get(kind or "related", "Related to")
+
+
+def count_phrase(kind, n):
+    one, many = KIND_NOUNS.get(kind, ("linked game", "linked games"))
+    return f"{n} {one if n == 1 else many}"
+
+
+def variants_summary(kinds):
+    """'+2 ROM hacks', or for a mix '+3 · 2 ROM hacks, 1 DLC'."""
+    counts = {}
+    for k in kinds:
+        counts[k] = counts.get(k, 0) + 1
+    total = len(kinds)
+    if len(counts) == 1:
+        return "+" + count_phrase(next(iter(counts)), total)
+    order = [k for k in FOLDED_KINDS if k in counts]
+    return f"+{total} · " + ", ".join(count_phrase(k, counts[k]) for k in order)

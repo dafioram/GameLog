@@ -172,12 +172,13 @@ original.
 
 On the Add game or Edit game form: *"This game is a [ROM hack ▾] of
 [Super Metroid ▾]"*. The kinds are Related, ROM hack, Mod, Fan game,
-Remake and Remaster.
+DLC / expansion, Remake and Remaster.
 
-- **ROM hacks, mods and fan games are folded under their original** in the
-  games list ("+3 ROM hacks", click to expand), so they don't swamp it.
-  A hack of a hack folds under the original at the top. The original's
-  page lists them in a "Hacks & mods" box with their status.
+- **ROM hacks, mods, fan games and DLC are folded under their original**
+  in the games list ("+3 ROM hacks", or for a mix "+3 · 2 ROM hacks,
+  1 DLC"; click to expand), so they don't swamp it. A hack of a hack folds
+  under the original at the top. The original's page lists them, with
+  their status, in "DLC & expansions" and "Hacks & mods" boxes.
 - **Remakes and remasters stay in the list** as their own games, with a
   "Remake of…" line.
 - **Folding only applies with no search or filters on.** Otherwise every
@@ -188,6 +189,14 @@ Remake and Remaster.
   with a "ROM hack of…" line under the title.
 - To fold under something, the original must be in your catalog. If you
   don't own it, add it with no copies; it shows as "—".
+
+**DLC:** register story DLC or an expansion you'd actually *beat* (e.g.
+*The Old Hunters* for *Bloodborne*) as its own game, linked as "DLC for"
+the base game. It then gets its own backlog spot, completions, rating,
+length and journal line. Give it a release on the same platform and a copy
+like *"DLC (PSN)"*, or *"Included in GOTY Edition"* if it came bundled.
+Small DLC (costumes, packs) and complete editions don't need entries; note
+them on the base game's copy.
 
 **Owned vs. playable.** Any copy makes a game *playable*. A copy with
 "I own this" ticked makes it *owned*. Untick the box for web links and

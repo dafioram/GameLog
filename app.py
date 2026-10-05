@@ -326,6 +326,10 @@ def register_template_helpers(app):
     def relation_phrase_filter(kind):
         return vocab.relation_phrase(kind)
 
+    @app.template_filter("variants_summary")
+    def variants_summary_filter(variants):
+        return vocab.variants_summary([v["relation_kind"] for v in variants])
+
     @app.context_processor
     def inject_globals():
         return {
