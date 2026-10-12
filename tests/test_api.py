@@ -332,6 +332,21 @@ def test_cover_type_comes_from_content_not_filename(client):
     assert re.search(r'/covers/[a-f0-9]+\.png', page(client, f"/games/{game_id}"))
 
 
+def test_missing_cover_file_falls_back_to_placeholder(client, app):
+    # e.g. the database was moved to a new machine without data/assets/covers
+    game_id = create_game(client)
+    _upload_cover(client, game_id)
+    name = re.search(r'/covers/([a-f0-9]+\.png)', page(client, f"/games/{game_id}")).group(1)
+    os.remove(os.path.join(app.config["COVERS_DIR"], name))
+    for url in (f"/games/{game_id}", "/games", "/"):
+        body = page(client, url)
+        assert f"/covers/{name}" not in body, url
+    assert "No cover art" in page(client, f"/games/{game_id}")
+    assert "no art" in page(client, "/games")
+    # the dangling pointer can still be cleared from the game page
+    assert "Clear cover" in page(client, f"/games/{game_id}")
+
+
 def test_prune_covers_removes_only_unreferenced_files(client, app):
     g1 = create_game(client, title="Keep")
     _upload_cover(client, g1)
