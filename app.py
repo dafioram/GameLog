@@ -682,6 +682,8 @@ def register_routes(app):
                     q.set_copy_verify_status(copy_id, "verified")
             except FileNotFoundError:
                 flash("Copy saved, but no file was found at that path to hash.", "error")
+            except OSError as e:
+                flash(f"Copy saved, but couldn't read the file: {e.strerror or e}.", "error")
         flash("Copy added.", "success")
         return to_game(release["game_id"])
 
@@ -744,6 +746,9 @@ def register_routes(app):
         except FileNotFoundError:
             flash("No file found at the recorded path.", "error")
             return to_game(copy["game_id"])
+        except OSError as e:
+            flash(f"Couldn't read the file: {e.strerror or e}.", "error")
+            return to_game(copy["game_id"])
         with db.transaction():
             q.update_copy_hash(copy_id, sha256, crc32, size)
             q.set_copy_verify_status(copy_id, "verified")
@@ -764,6 +769,10 @@ def register_routes(app):
             with db.transaction():
                 q.set_copy_verify_status(copy_id, "missing")
             flash("File is missing at the recorded path.", "error")
+            return to_game(copy["game_id"])
+        except OSError as e:
+            # Unreadable is not missing: keep the recorded status as it was.
+            flash(f"Couldn't read the file: {e.strerror or e}.", "error")
             return to_game(copy["game_id"])
 
         with db.transaction():
