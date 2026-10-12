@@ -291,8 +291,8 @@
           <div class="field-group"><label for="r{{ release['id'] }}-year">Year</label><input type="number" id="r{{ release['id'] }}-year" name="release_year" value="{{ release['release_year'] or '' }}"></div>
         </div>
         <div class="field-row">
-          <div class="field-group"><label for="r{{ release['id'] }}-pub">Publisher</label><input type="text" id="r{{ release['id'] }}-pub" name="publisher" value="{{ release['publisher'] or '' }}"></div>
           <div class="field-group"><label for="r{{ release['id'] }}-dev">Developer</label><input type="text" id="r{{ release['id'] }}-dev" name="developer" value="{{ release['developer'] or '' }}"></div>
+          <div class="field-group"><label for="r{{ release['id'] }}-pub">Publisher</label><input type="text" id="r{{ release['id'] }}-pub" name="publisher" value="{{ release['publisher'] or '' }}"></div>
           <div class="field-group"><label for="r{{ release['id'] }}-serial">Serial</label><input type="text" id="r{{ release['id'] }}-serial" name="serial" value="{{ release['serial'] or '' }}"></div>
         </div>
         <div class="field-group"><label for="r{{ release['id'] }}-notes">Notes</label><textarea id="r{{ release['id'] }}-notes" name="notes">{{ release['notes'] or '' }}</textarea></div>
@@ -464,8 +464,8 @@
       <div class="field-group"><label for="nr-year">Year</label><input type="number" id="nr-year" name="release_year"></div>
     </div>
     <div class="field-row">
-      <div class="field-group"><label for="nr-pub">Publisher</label><input type="text" id="nr-pub" name="publisher"></div>
       <div class="field-group"><label for="nr-dev">Developer</label><input type="text" id="nr-dev" name="developer"></div>
+      <div class="field-group"><label for="nr-pub">Publisher</label><input type="text" id="nr-pub" name="publisher"></div>
       <div class="field-group"><label for="nr-serial">Serial</label><input type="text" id="nr-serial" name="serial"></div>
     </div>
     <div class="field-group"><label for="nr-notes">Notes</label><textarea id="nr-notes" name="notes"></textarea></div>
