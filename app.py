@@ -330,6 +330,16 @@ def register_template_helpers(app):
     def variants_summary_filter(variants):
         return vocab.variants_summary([v["relation_kind"] for v in variants])
 
+    @app.template_global("has_cover")
+    def has_cover(filename):
+        # True only when a cover is set AND its file is on disk. A game whose
+        # file is missing (e.g. the database was moved to a new machine
+        # without data/assets/covers) renders the "no cover" placeholder
+        # instead of a broken image.
+        if not filename:
+            return False
+        return (Path(app.config["COVERS_DIR"]) / Path(filename).name).is_file()
+
     @app.context_processor
     def inject_globals():
         return {

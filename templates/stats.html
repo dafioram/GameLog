@@ -129,7 +129,7 @@
         {% for r in stats.top_rated %}
           <li class="top-row">
             <span class="top-rank">{{ loop.index }}</span>
-            {% if r['cover_image_path'] %}<img class="top-cover" src="{{ url_for('cover_file', filename=r['cover_image_path']) }}" alt="" loading="lazy">{% else %}<span class="top-cover placeholder"></span>{% endif %}
+            {% if has_cover(r['cover_image_path']) %}<img class="top-cover" src="{{ url_for('cover_file', filename=r['cover_image_path']) }}" alt="" loading="lazy">{% else %}<span class="top-cover placeholder"></span>{% endif %}
             <span class="top-title"><a href="{{ url_for('game_detail', game_id=r['game_id']) }}">{{ r['title'] }}</a>{% if r['edition_note'] %} <span class="muted">— {{ r['edition_note'] }}</span>{% endif %}
               <span class="muted top-meta">{{ r['completed_at'][:4] }}{% if r['times'] > 1 %} · beaten {{ r['times'] }}×{% endif %}</span></span>
             <span class="rating-pill big">{{ r['rating'] }}/10</span>

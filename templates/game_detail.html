@@ -84,7 +84,7 @@
 
 <div class="detail-head">
   <div class="detail-cover">
-    {% if game['cover_image_path'] %}
+    {% if has_cover(game['cover_image_path']) %}
       <img src="{{ url_for('cover_file', filename=game['cover_image_path']) }}" alt="{{ game['title'] }} cover">
     {% else %}
       <span class="placeholder">No cover art</span>

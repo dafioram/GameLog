@@ -23,7 +23,7 @@
     {% for e in recently_beaten %}
       <div class="cover-thumb">
         <a href="{{ url_for('game_detail', game_id=e['game_id']) }}">
-          {% if e['cover_image_path'] %}
+          {% if has_cover(e['cover_image_path']) %}
             <img src="{{ url_for('cover_file', filename=e['cover_image_path']) }}" alt="{{ e['title'] }} cover" loading="lazy">
           {% else %}
             <span class="placeholder">{{ e['title'] }}</span>
@@ -61,7 +61,7 @@
     {% for r in recent %}
       <div class="cover-thumb">
         <a href="{{ url_for('game_detail', game_id=r['game_id']) }}">
-          {% if r['cover_image_path'] %}
+          {% if has_cover(r['cover_image_path']) %}
             <img src="{{ url_for('cover_file', filename=r['cover_image_path']) }}" alt="{{ r['title'] }} cover" loading="lazy">
           {% else %}
             <span class="placeholder">{{ r['title'] }}</span>

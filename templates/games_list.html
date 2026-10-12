@@ -96,7 +96,7 @@
   <div class="ledger">
     {% for g in games %}
       <div class="game-row" data-game-id="{{ g['game_id'] }}">
-        {% if g['cover_image_path'] %}
+        {% if has_cover(g['cover_image_path']) %}
           <img class="cover-mini" src="{{ url_for('cover_file', filename=g['cover_image_path']) }}" alt="" loading="lazy">
         {% else %}
           <div class="cover-mini-placeholder">no art</div>
