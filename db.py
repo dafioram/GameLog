@@ -19,7 +19,7 @@ DB_FILENAME = DEFAULT_DB_PATH.name
 # changes after this point. Each migration takes the connection and brings
 # the database from (version - 1) to version. schema.sql always describes
 # the *latest* schema and is only executed for brand-new databases.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _migrate_2_save_vault(db):
@@ -56,10 +56,48 @@ def _migrate_3_links_and_play_method(db):
     db.execute("CREATE INDEX IF NOT EXISTS idx_games_related ON games(related_game_id)")
 
 
+def _migrate_4_decimal_ratings(db):
+    """Ratings may have one decimal place (8.5), not just whole numbers.
+    SQLite can't change a CHECK constraint in place, so completions is
+    rebuilt: same rows, same ids, and saves keep their link to the playthrough
+    they came from. init_db turns foreign keys off for this step; with them on,
+    dropping the old table would clear those links."""
+    db.execute("""
+        CREATE TABLE completions_new (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id          INTEGER NOT NULL,
+            copy_id          INTEGER,
+            played_on_platform_id INTEGER,
+            method           TEXT,
+            completed_at     TEXT NOT NULL,
+            hours_played     REAL,
+            rating           NUMERIC CHECK (rating IS NULL OR
+                                            (rating BETWEEN 1 AND 10 AND ROUND(rating, 1) = rating)),
+            notes            TEXT,
+            FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
+            FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE SET NULL,
+            FOREIGN KEY (played_on_platform_id) REFERENCES platforms(id)
+        )""")
+    db.execute("""
+        INSERT INTO completions_new (id, game_id, copy_id, played_on_platform_id, method,
+                                     completed_at, hours_played, rating, notes)
+        SELECT id, game_id, copy_id, played_on_platform_id, method,
+               completed_at, hours_played, rating, notes FROM completions""")
+    db.execute("DROP TABLE completions")
+    db.execute("ALTER TABLE completions_new RENAME TO completions")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_completions_game ON completions(game_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_completions_copy ON completions(copy_id)")
+    problems = db.execute("PRAGMA foreign_key_check").fetchall()
+    if problems:
+        raise RuntimeError("Upgrade to schema 4 stopped: the rebuilt completions table "
+                           f"has {len(problems)} broken link(s). Nothing was changed.")
+
+
 # version -> function bringing the database from (version - 1) to version.
 MIGRATIONS = {
     2: _migrate_2_save_vault,
     3: _migrate_3_links_and_play_method,
+    4: _migrate_4_decimal_ratings,
 }
 
 
@@ -187,6 +225,10 @@ def init_db():
     # leaves the database exactly at the previous version.
     for target in range(version + 1, SCHEMA_VERSION + 1):
         db.commit()
+        # Must be set outside a transaction (SQLite ignores it inside one).
+        # Migrations that rebuild a table rely on it, and each one checks
+        # foreign keys itself before committing.
+        db.execute("PRAGMA foreign_keys = OFF")
         db.execute("BEGIN")
         try:
             MIGRATIONS[target](db)
@@ -195,6 +237,8 @@ def init_db():
         except Exception:
             db.rollback()
             raise
+        finally:
+            db.execute("PRAGMA foreign_keys = ON")
 
 
 def referenced_cover_files():

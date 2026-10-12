@@ -571,7 +571,7 @@ def test_default_paths_live_under_data_folder():
 def test_new_database_records_schema_version(app):
     import db as db_module
     conn = sqlite3.connect(app.config["DATABASE"])
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION == 3
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION == 4
     conn.close()
 
 
@@ -1246,3 +1246,80 @@ def test_backlog_owned_badge_survives_filters_and_sorting(client):
     client.post("/games/1/backlog/add")
     body = page(client, "/backlog?sort=length_asc")
     assert '<span class="badge">Owned</span>' in _backlog_row(body, "Owned Game")
+
+
+# ============================================================ decimal ratings
+
+def test_ratings_accept_one_decimal_place_and_show_it(client):
+    game_id = create_game(client, title="Hollow Knight", platform="PC")
+    add_copy(client, 1, format="Steam")
+    client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-01-01", "rating": "8.5"})
+    body = page(client, f"/games/{game_id}")
+    assert "8.5/10" in body
+
+    # whole numbers keep their old display, not "9.0/10"
+    client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-02-01", "rating": "9"})
+    body = page(client, f"/games/{game_id}")
+    assert "9/10" in body and "9.0/10" not in body
+
+    # best-rated list on the stats page shows each game's best rating
+    other = create_game(client, title="Hades", platform="PC")
+    add_copy(client, 2, format="Game Pass")
+    client.post(f"/games/{other}/complete", data={"completed_at": "2026-03-01", "rating": "8.5"})
+    assert "8.5/10" in page(client, "/stats")
+
+
+def test_rating_can_be_edited_to_a_decimal(client):
+    game_id = create_game(client, title="Celeste", platform="PC")
+    add_copy(client, 1, format="Steam")
+    client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-01-01", "rating": "7"})
+    resp = client.post("/completions/1/edit", data={"completed_at": "2026-01-01", "rating": "9.5",
+                                                   "copy_id": "1"}, follow_redirects=True)
+    assert b"Completion updated" in resp.data
+    assert "9.5/10" in page(client, f"/games/{game_id}")
+
+
+@pytest.mark.parametrize("raw", ["1", "1.0", "1.5", "9.9", "10", "10.0", "7.3"])
+def test_valid_ratings_are_accepted(client, raw):
+    game_id = create_game(client)
+    client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-01-01", "rating": raw})
+    assert f"{float(raw):g}/10" in page(client, f"/games/{game_id}"), raw
+
+
+@pytest.mark.parametrize("raw", ["0", "0.9", "10.1", "11", "8.25", "7.77", "abc", "NaN", "Infinity", "-3"])
+def test_invalid_ratings_are_rejected(client, raw):
+    game_id = create_game(client)
+    resp = client.post(f"/games/{game_id}/complete",
+                       data={"completed_at": "2026-01-01", "rating": raw}, follow_redirects=True)
+    assert b"Rating must be between 1 and 10" in resp.data or b"at most one decimal place" in resp.data, raw
+    assert "Not marked as beaten yet" in page(client, f"/games/{game_id}")
+
+
+def test_database_itself_refuses_a_rating_with_two_decimals(client, app):
+    game_id = create_game(client)
+    client.post(f"/games/{game_id}/complete", data={"completed_at": "2026-01-01", "rating": "8"})
+    conn = sqlite3.connect(app.config["DATABASE"])
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE completions SET rating = 8.25 WHERE id = 1")
+    conn.close()
+
+
+def test_upgrade_keeps_save_links_and_accepts_decimals(tmp_path):
+    from app import create_app
+    data = str(tmp_path / "data")
+    _old_database(data, 2)                       # has a save linked to completion 1
+    app = create_app(data_dir=data)
+    app.config["TESTING"] = True
+    conn = sqlite3.connect(app.config["DATABASE"])
+    conn.row_factory = sqlite3.Row
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    save = conn.execute("SELECT completion_id FROM saves").fetchone()
+    assert save["completion_id"] == 1
+    assert conn.execute("SELECT rating FROM completions WHERE id = 1").fetchone()[0] == 9
+    conn.close()
+
+    c = app.test_client()
+    c.post("/games/4/complete", data={"completed_at": "2026-05-01", "rating": "8.5"})
+    assert "8.5/10" in page(c, "/games/4")
+    assert "9/10" in page(c, "/games/4")         # the upgraded whole-number rating

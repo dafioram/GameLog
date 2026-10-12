@@ -204,7 +204,7 @@
           </div>
           <div class="field-group">
             <label for="rating">Rating (1–10)</label>
-            <input type="number" id="rating" name="rating" min="1" max="10">
+            <input type="number" id="rating" name="rating" min="1" max="10" step="0.1">
           </div>
         </div>
         {{ play_fields('new-comp', game_copies[0]['id'] if game_copies|length == 1 else None) }}
@@ -502,7 +502,7 @@
             <div class="field-row">
               <div class="field-group"><label for="cp{{ comp['id'] }}-date">Date</label><input type="date" id="cp{{ comp['id'] }}-date" name="completed_at" value="{{ comp['completed_at'] }}"></div>
               <div class="field-group"><label for="cp{{ comp['id'] }}-hours">Hours</label><input type="number" id="cp{{ comp['id'] }}-hours" name="hours_played" step="0.1" min="0" value="{{ '%g'|format(comp['hours_played']) if comp['hours_played'] is not none else '' }}"></div>
-              <div class="field-group"><label for="cp{{ comp['id'] }}-rating">Rating</label><input type="number" id="cp{{ comp['id'] }}-rating" name="rating" min="1" max="10" value="{{ comp['rating'] or '' }}"></div>
+              <div class="field-group"><label for="cp{{ comp['id'] }}-rating">Rating</label><input type="number" id="cp{{ comp['id'] }}-rating" name="rating" min="1" max="10" step="0.1" value="{{ comp['rating'] or '' }}"></div>
             </div>
             {{ play_fields('cp' ~ comp['id'], comp['copy_id'], comp['played_on_recorded'], comp['method']) }}
             <div class="field-group"><label for="cp{{ comp['id'] }}-notes">Notes</label><textarea id="cp{{ comp['id'] }}-notes" name="notes">{{ comp['notes'] or '' }}</textarea></div>

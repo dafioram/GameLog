@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS completions (
     method           TEXT,
     completed_at     TEXT NOT NULL,       -- 'YYYY-MM-DD'
     hours_played     REAL,
-    rating           INTEGER CHECK (rating IS NULL OR rating BETWEEN 1 AND 10),
+    rating           NUMERIC CHECK (rating IS NULL OR
+                                    (rating BETWEEN 1 AND 10 AND ROUND(rating, 1) = rating)),  -- 1-10 in steps of 0.1
     notes            TEXT,
     FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
     FOREIGN KEY (copy_id) REFERENCES copies(id) ON DELETE SET NULL,

@@ -235,7 +235,7 @@ Only a **title** and **platform** are required to add a game.
   be sorted on. Games with no length show "-" and always sort last.
 - **Completion history:** a log of every playthrough, so the same game can
   be beaten more than once. Each entry has a date, hours played, a 1–10
-  rating, notes, and optionally **which copy you used**, the **system you
+  rating (one decimal place is fine, like 8.5), notes, and optionally **which copy you used**, the **system you
   played on**, and the **method**. Entries can be edited.
 - **Integrity checking:** only for copies with a file path. "Compute hash"
   stores SHA-256, CRC32, and the file size. "Verify" re-hashes the file and
