@@ -1215,3 +1215,34 @@ def test_edit_form_offers_dlc_kind(client):
     other = create_game(client, title="Expansion")
     body = page(client, f"/games/{other}")
     assert '<option value="dlc"' in body and ">DLC for</option>" in body
+
+
+def _backlog_row(body, title):
+    """The backlog <li> for one game, found by its title link."""
+    for chunk in body.split('class="backlog-row')[1:]:
+        if f">{title}</a>" in chunk:
+            return chunk.split("</li>")[0]
+    raise AssertionError(f"{title} not in backlog")
+
+
+def test_backlog_shows_owned_or_playable_badge(client):
+    create_game(client, title="Owned Game", platform="PC")
+    add_copy(client, 1, format="GOG")
+    create_game(client, title="Link Game", platform="PC")
+    add_copy(client, 2, format="Game Pass", is_owned=["0"])
+    create_game(client, title="Untracked Game", platform="PC")
+    for gid in (1, 2, 3):
+        client.post(f"/games/{gid}/backlog/add")
+
+    body = page(client, "/backlog")
+    assert '<span class="badge">Owned</span>' in _backlog_row(body, "Owned Game")
+    assert '<span class="badge">Playable</span>' in _backlog_row(body, "Link Game")
+    assert "badge" not in _backlog_row(body, "Untracked Game")
+
+
+def test_backlog_owned_badge_survives_filters_and_sorting(client):
+    create_game(client, title="Owned Game", platform="SNES")
+    add_copy(client, 1, format="Physical")
+    client.post("/games/1/backlog/add")
+    body = page(client, "/backlog?sort=length_asc")
+    assert '<span class="badge">Owned</span>' in _backlog_row(body, "Owned Game")

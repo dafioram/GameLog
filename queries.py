@@ -514,14 +514,15 @@ def list_active_backlog(platform_id=None, location=None, tag_id=None, sort="rank
     """Each row carries its *true* rank in the whole backlog (window
     function computed before filtering), so a filtered or length-sorted
     view still shows where a game sits in your real priority order."""
-    sql = """
+    sql = f"""
         WITH ranked AS (
             SELECT b.*, ROW_NUMBER() OVER (ORDER BY b.sort_order, b.id) AS rank
             FROM backlog b WHERE b.removed_at IS NULL
         )
         SELECT ranked.id AS backlog_id, ranked.rank, ranked.sort_order, ranked.added_at,
                g.id AS game_id, g.title, g.edition_note, g.length_hours,
-               g.relation_kind, p.id AS parent_id, p.title AS parent_title
+               g.relation_kind, p.id AS parent_id, p.title AS parent_title,
+               {OWNED_SQL} AS owned, {PLAYABLE_SQL} AS playable
         FROM ranked JOIN games g ON g.id = ranked.game_id
         LEFT JOIN games p ON p.id = g.related_game_id
         WHERE 1 = 1
