@@ -1,6 +1,7 @@
 import math
 import os
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -132,16 +133,19 @@ def _number(name, label, cast=float, minimum=0, maximum=None):
 
 
 def _rating():
+    """1 to 10 in steps of 0.1 (8.5 is fine, 8.25 is not)."""
     raw = request.form.get("rating", "").strip()
     if not raw:
         return None
     try:
-        value = int(raw)
-    except ValueError:
+        value = Decimal(raw)
+    except InvalidOperation:
         raise FormError("Rating must be between 1 and 10.")
-    if not 1 <= value <= 10:
+    if not value.is_finite() or not 1 <= value <= 10:
         raise FormError("Rating must be between 1 and 10.")
-    return value
+    if (value * 10) % 1 != 0:
+        raise FormError("Rating can have at most one decimal place, like 8.5.")
+    return float(value)
 
 
 def _date(name, default=None):
