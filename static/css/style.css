@@ -202,10 +202,12 @@ form.search-form input[type="text"] { width: 220px; }
   width: 96px;
   text-align: center;
 }
+/* Covers fit inside their frame, so squares and landscape images aren't cut;
+   the frame's own background fills the space around them. */
 .cover-thumb img, .cover-thumb .placeholder {
   width: 96px;
   height: 128px;
-  object-fit: cover;
+  object-fit: contain;
   border: 1px solid var(--line);
   background: var(--paper);
   border-radius: var(--radius);
@@ -237,7 +239,7 @@ form.search-form input[type="text"] { width: 220px; }
 .game-row .cover-mini, .game-row .cover-mini-placeholder {
   width: 56px;
   height: 74px;
-  object-fit: cover;
+  object-fit: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--paper);
@@ -381,7 +383,7 @@ button.small { padding: 3px 9px; font-size: 0.8rem; }
 .detail-cover img, .detail-cover .placeholder {
   width: 160px;
   height: 213px;
-  object-fit: cover;
+  object-fit: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--paper);
@@ -668,7 +670,7 @@ fieldset.link-fields legend { font-size: 0.85rem; color: var(--ink); padding: 0 
 .top-rated { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .top-row { display: grid; grid-template-columns: 26px 36px 1fr auto; gap: 12px; align-items: center; padding: 7px 2px; border-bottom: 1px solid var(--line); }
 .top-rank { font-family: var(--font-display); color: var(--brass); font-size: 1.05rem; text-align: right; }
-.top-cover { width: 36px; height: 48px; object-fit: cover; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); display: block; }
+.top-cover { width: 36px; height: 48px; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); display: block; }
 .top-meta { display: block; font-size: 0.8rem; }
 
 /* ---------------------------------------------------------- home dashboard */
